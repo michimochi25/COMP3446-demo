@@ -1,0 +1,248 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "INSECURE CloudFormation Template for SecureBank Transaction API - DO NOT USE IN PRODUCTION"
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+
+Resources:
+  # ===== DATABASE (INSECURE) =====
+  # VULNERABILITY: No encryption at rest, publicly accessible, no backup
+  # VULNERABILITY: Database credentials hardcoded in DB parameter
+  TransactionDatabase:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: securebank-db-insecure
+      Engine: mysql
+      EngineVersion: "8.0.28"
+      DBInstanceClass: db.t2.micro
+      AllocatedStorage: 20
+      MasterUsername: admin
+      MasterUserPassword: "BankPassword123!" # VULNERABILITY: Hardcoded password!
+      PubliclyAccessible: true # VULNERABILITY: Publicly accessible!
+      StorageEncrypted: false # VULNERABILITY: No encryption at rest!
+      EnableCloudwatchLogsExports: [] # VULNERABILITY: No logging!
+      BackupRetentionPeriod: 0 # VULNERABILITY: No backups!
+      DeletionProtection: false
+      EnableIAMDatabaseAuthentication: false # VULNERABILITY: No IAM auth!
+      DBSecurityGroups:
+        - default
+
+  # ===== S3 BUCKET FOR AUDIT LOGS (INSECURE) =====
+  # VULNERABILITY: No default encryption, logging disabled, public access allowed
+  AuditLogsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "securebank-audit-logs-${AWS::AccountId}-insecure"
+      VersioningConfiguration:
+        Status: Disabled # VULNERABILITY: No versioning!
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false # VULNERABILITY: Public access allowed!
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      ServerSideEncryptionConfiguration: [] # VULNERABILITY: No encryption!
+
+  # ===== IAM ROLE FOR LAMBDA (OVERLY PERMISSIVE) =====
+  # VULNERABILITY: Admin access, no least privilege
+  LambdaExecutionRoleInsecure:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess # VULNERABILITY: Admin access!
+
+  # ===== LAMBDA FUNCTION (INSECURE) =====
+  # VULNERABILITY: No authentication, no input validation, hardcoded secrets
+  GetTransactionFunctionInsecure:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: get-transaction-insecure
+      Runtime: python3.9
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRoleInsecure.Arn
+      Environment:
+        Variables:
+          DB_HOST: !GetAtt TransactionDatabase.Endpoint.Address
+          DB_USER: admin
+          DB_PASSWORD: "BankPassword123!" # VULNERABILITY: Password in env vars!
+          DB_NAME: secure_bank
+      Code:
+        ZipFile: |
+          import json
+          import mysql.connector
+          import os
+
+          def handler(event, context):
+              # VULNERABILITY: No authentication/authorization
+              # VULNERABILITY: Direct SQL query without parameterization risk
+              # VULNERABILITY: No input validation
+              
+              account_id = event.get('account_id')  # No validation!
+              
+              try:
+                  conn = mysql.connector.connect(
+                      host=os.environ['DB_HOST'],
+                      user=os.environ['DB_USER'],
+                      password=os.environ['DB_PASSWORD'],
+                      database=os.environ['DB_NAME']
+                  )
+                  cursor = conn.cursor()
+                  
+                  # VULNERABILITY: No parameterized queries
+                  query = f"SELECT * FROM transactions WHERE account_id = {account_id}"
+                  cursor.execute(query)
+                  result = cursor.fetchall()
+                  
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps(result)  # VULNERABILITY: Sensitive data exposed!
+                  }
+              except Exception as e:
+                  # VULNERABILITY: Verbose error messages expose system details
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps({'error': str(e)})  # Stack trace leakage!
+                  }
+
+  # ===== TRANSFER FUNDS LAMBDA (INSECURE) =====
+  TransferFundsFunctionInsecure:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: transfer-funds-insecure
+      Runtime: python3.9
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRoleInsecure.Arn
+      Environment:
+        Variables:
+          DB_HOST: !GetAtt TransactionDatabase.Endpoint.Address
+          DB_USER: admin
+          DB_PASSWORD: "BankPassword123!" # VULNERABILITY: Password in env vars!
+          DB_NAME: secure_bank
+      Code:
+        ZipFile: |
+          import json
+          import mysql.connector
+          import os
+          import uuid
+
+          def handler(event, context):
+              # VULNERABILITY: No authentication
+              # VULNERABILITY: No authorization/permission checks
+              # VULNERABILITY: No idempotency token (replay attacks possible)
+              # VULNERABILITY: No rate limiting
+              
+              from_account = event.get('from_account')  # No validation!
+              to_account = event.get('to_account')  # No validation!
+              amount = event.get('amount')  # No validation!
+              
+              try:
+                  conn = mysql.connector.connect(
+                      host=os.environ['DB_HOST'],
+                      user=os.environ['DB_USER'],
+                      password=os.environ['DB_PASSWORD'],
+                      database=os.environ['DB_NAME']
+                  )
+                  cursor = conn.cursor()
+                  
+                  # VULNERABILITY: No transaction atomicity checks
+                  # VULNERABILITY: SQL injection possible
+                  debit_query = f"UPDATE accounts SET balance = balance - {amount} WHERE id = {from_account}"
+                  credit_query = f"UPDATE accounts SET balance = balance + {amount} WHERE id = {to_account}"
+                  
+                  cursor.execute(debit_query)
+                  cursor.execute(credit_query)
+                  conn.commit()  # VULNERABILITY: No rollback on partial failure!
+                  
+                  # VULNERABILITY: No audit log
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps({'status': 'transferred'})
+                  }
+              except Exception as e:
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps({'error': str(e)})
+                  }
+
+  # ===== API GATEWAY (INSECURE) =====
+  # VULNERABILITY: No authentication, no CORS restriction, no rate limiting
+  APIGatewayRestApiInsecure:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: SecureBank-API-Insecure
+      Description: Banking API - INSECURE VERSION
+      EndpointConfiguration:
+        Types: [REGIONAL]
+
+  # VULNERABILITY: No authorizer, open CORS
+  TransactionsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref APIGatewayRestApiInsecure
+      ParentId: !GetAtt APIGatewayRestApiInsecure.RootResourceId
+      PathPart: transactions
+
+  # VULNERABILITY: No authentication on GET
+  GetTransactionMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref APIGatewayRestApiInsecure
+      ResourceId: !Ref TransactionsResource
+      HttpMethod: GET
+      AuthorizationType: NONE # VULNERABILITY: No auth!
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetTransactionFunctionInsecure.Arn}/invocations"
+
+  # VULNERABILITY: No authentication on POST
+  TransferFundsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref APIGatewayRestApiInsecure
+      ParentId: !GetAtt APIGatewayRestApiInsecure.RootResourceId
+      PathPart: transfer
+
+  TransferFundsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref APIGatewayRestApiInsecure
+      ResourceId: !Ref TransferFundsResource
+      HttpMethod: POST
+      AuthorizationType: NONE # VULNERABILITY: No auth!
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${TransferFundsFunctionInsecure.Arn}/invocations"
+
+  # VULNERABILITY: No WAF, no rate limiting
+  APIDeploymentInsecure:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - GetTransactionMethod
+      - TransferFundsMethod
+    Properties:
+      RestApiId: !Ref APIGatewayRestApiInsecure
+      StageName: !Ref Environment
+
+Outputs:
+  APIEndpoint:
+    Value: !Sub "https://${APIGatewayRestApiInsecure}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+    Description: INSECURE API endpoint - DO NOT USE IN PRODUCTION
+
+  DatabaseEndpoint:
+    Value: !GetAtt TransactionDatabase.Endpoint.Address
+    Description: RDS endpoint (publicly accessible!)
+
+  AuditBucketName:
+    Value: !Ref AuditLogsBucket
+    Description: S3 bucket for audit logs (unencrypted)
