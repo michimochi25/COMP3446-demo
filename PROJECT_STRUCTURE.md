@@ -17,14 +17,10 @@ COMP3446-demo/
 │   └── secure-template.yaml           # Production-ready hardened CloudFormation
 │
 ├── phase-2-app/                       # Application Code (Lambda Functions)
-│   ├── README.md                      # Lambda development guide
-│   ├── lambda_functions.py            # GET /transactions & POST /transfer implementations
-│   └── requirements.txt               # Python dependencies for scanning & deployment
-│
-└── docs/                              # (Optional) Additional documentation
-    ├── STRIDE-threat-model.md
-    ├── testing-guide.md
-    └── incident-response.md
+    ├── README.md                      # Lambda development guide
+    ├── lambda_functions.py            # GET /transactions & POST /transfer implementations
+    └── requirements.txt               # Python dependencies for scanning & deployment
+
 ```
 
 ## Phase-by-Phase Walkthrough
