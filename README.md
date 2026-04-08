@@ -227,9 +227,19 @@ checkov -f phase-2-iac/secure-template.yaml --framework cloudformation
 | **Spoofing**               | No authentication        | API Gateway with `AuthorizationType: NONE` | Cognito User Pools with JWT validation                   |
 | **Tampering**              | No encryption in transit | Hardcoded DB password in env vars          | Secrets Manager with TLS 1.3                             |
 | **Repudiation**            | No audit trail           | S3 logging disabled, no CloudTrail         | CloudTrail + immutable S3 audit logs + encrypted storage |
-| **Info Disclosure**        | Sensitive data exposed   | Public RDS + verbose errors                | Private VPC + RDS + KMS encryption + generic errors      |
+| **Info Disclosure**        | Sensitive data exposed   | Public RDS (0.0.0.0/0) + verbose errors    | Private RDS + network isolation + generic errors         |
 | **DoS**                    | No rate limiting         | No WAF, unlimited API calls                | AWS WAF with rate limiting + DDoS protection             |
 | **Elevation of Privilege** | Overly permissive IAM    | Lambda has `AdministratorAccess`           | Least privilege + resource-scoped permissions            |
+
+**Network Security Comparison:**
+
+| Component           | Insecure                        | Secure                                |
+| ------------------- | ------------------------------- | ------------------------------------- |
+| **RDS Access**      | Public: 0.0.0.0/0:3306 (open)   | Private: Lambda SG only               |
+| **Lambda Subnets**  | Private (via NAT for outbound)  | Private (via NAT for outbound)        |
+| **Egress Control**  | All allowed (0.0.0.0/0)         | Restricted (Secrets Manager, KMS, S3) |
+| **Database Backup** | None (BackupRetentionPeriod: 0) | 30-day retention with encryption      |
+| **Encryption**      | None (StorageEncrypted: false)  | KMS AES-256 at rest + TLS in transit  |
 
 ---
 

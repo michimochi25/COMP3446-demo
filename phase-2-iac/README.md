@@ -101,6 +101,35 @@ The insecure template demonstrates real-world security mistakes aligned with STR
 - No resource-level permissions
 - No API-level authorization checks
 
+### Insecure Template Network Architecture
+
+The insecure template includes basic NAT Gateway infrastructure to allow Lambda to reach AWS services, but with critical security gaps:
+
+```
+Insecure VPC (10.0.0.0/16)
+│
+├─ PublicSubnet (10.0.0.0/24)
+│  └─ NAT Gateway (✅ functional, but minimal security)
+│
+├─ PrivateSubnet1/2 (10.0.1-2.0/24)
+│  ├─ Lambda Functions
+│  └─ RDS MySQL
+│
+RDS Security Group:
+  ❌ OPEN TO INTERNET: 0.0.0.0/0:3306
+  ❌ PubliclyAccessible: true
+  ❌ StorageEncrypted: false
+  ❌ BackupRetentionPeriod: 0
+```
+
+**Network Vulnerabilities:**
+
+- Database security group accepts connections from 0.0.0.0/0 (entire internet)
+- RDS PubliclyAccessible enabled (reachable from anywhere)
+- No network ACLs restricting traffic
+- Lambda security group allows all outbound (no egress restrictions)
+- No encryption in transit (TLS not enforced)
+
 ---
 
 ## Security Controls in Secure Template

@@ -8,6 +8,160 @@ Parameters:
     AllowedValues: [dev, staging, prod]
 
 Resources:
+  # ===== VPC (MINIMAL NETWORK) =====
+  # Note: VPC structure added to allow Lambda to reach AWS services via NAT
+  # Other vulnerabilities (hardcoded secrets, public RDS, no encryption) remain intentionally insecure
+  InsecureBankVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: SecureBank-Insecure-VPC
+
+  # ===== INTERNET GATEWAY =====
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: SecureBank-Insecure-IGW
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref InsecureBankVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # ===== PUBLIC SUBNET (FOR NAT GATEWAY) =====
+  PublicSubnetInsecure:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref InsecureBankVPC
+      CidrBlock: 10.0.0.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: PublicSubnetInsecure
+
+  # ===== NAT GATEWAY (FOR LAMBDA OUTBOUND ACCESS) =====
+  NATGatewayEIPInsecure:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: SecureBank-Insecure-NAT-EIP
+
+  NATGatewayInsecure:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NATGatewayEIPInsecure.AllocationId
+      SubnetId: !Ref PublicSubnetInsecure
+      Tags:
+        - Key: Name
+          Value: SecureBank-Insecure-NAT
+
+  # ===== PUBLIC ROUTE TABLE =====
+  PublicRouteTableInsecure:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref InsecureBankVPC
+      Tags:
+        - Key: Name
+          Value: PublicRouteTableInsecure
+
+  PublicRouteInsecure:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTableInsecure
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociationInsecure:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetInsecure
+      RouteTableId: !Ref PublicRouteTableInsecure
+
+  # ===== PRIVATE SUBNETS (FOR RDS & LAMBDA) =====
+  PrivateSubnet1Insecure:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref InsecureBankVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: PrivateSubnet1Insecure
+
+  PrivateSubnet2Insecure:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref InsecureBankVPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: PrivateSubnet2Insecure
+
+  # ===== PRIVATE ROUTE TABLE (WITH NAT FOR OUTBOUND) =====
+  PrivateRouteTableInsecure:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref InsecureBankVPC
+      Tags:
+        - Key: Name
+          Value: PrivateRouteTableInsecure
+
+  PrivateRouteInsecure:
+    Type: AWS::EC2::Route
+    DependsOn: NATGatewayInsecure
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableInsecure
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGatewayInsecure
+
+  PrivateSubnet1RouteTableAssociationInsecure:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1Insecure
+      RouteTableId: !Ref PrivateRouteTableInsecure
+
+  PrivateSubnet2RouteTableAssociationInsecure:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2Insecure
+      RouteTableId: !Ref PrivateRouteTableInsecure
+
+  # ===== DATABASE SECURITY GROUP (OVERLY PERMISSIVE) =====
+  # VULNERABILITY: Open to internet (should be VPC only)
+  DBSecurityGroupInsecure:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for RDS database (insecure)
+      VpcId: !Ref InsecureBankVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0 # VULNERABILITY: Open to entire internet!
+          Description: MySQL from anywhere (insecure)
+
+  # ===== RDS DB SUBNET GROUP =====
+  DBSubnetGroupInsecure:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for insecure RDS
+      SubnetIds:
+        - !Ref PrivateSubnet1Insecure
+        - !Ref PrivateSubnet2Insecure
+
   # ===== DATABASE (INSECURE) =====
   # VULNERABILITY: No encryption at rest, publicly accessible, no backup
   # VULNERABILITY: Database credentials hardcoded in DB parameter
@@ -27,8 +181,9 @@ Resources:
       BackupRetentionPeriod: 0 # VULNERABILITY: No backups!
       DeletionProtection: false
       EnableIAMDatabaseAuthentication: false # VULNERABILITY: No IAM auth!
-      DBSecurityGroups:
-        - default
+      VPCSecurityGroups:
+        - !Ref DBSecurityGroupInsecure
+      DBSubnetGroupName: !Ref DBSubnetGroupInsecure
 
   # ===== S3 BUCKET FOR AUDIT LOGS (INSECURE) =====
   # VULNERABILITY: No default encryption, logging disabled, public access allowed
@@ -44,6 +199,18 @@ Resources:
         IgnorePublicAcls: false
         RestrictPublicBuckets: false
       ServerSideEncryptionConfiguration: [] # VULNERABILITY: No encryption!
+
+  # ===== LAMBDA SECURITY GROUP (OVERLY PERMISSIVE) =====
+  # VULNERABILITY: No egress restrictions (can reach anywhere)
+  LambdaSecurityGroupInsecure:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Lambda functions (insecure)
+      VpcId: !Ref InsecureBankVPC
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0 # VULNERABILITY: All outbound allowed!
+          Description: All outbound (insecure)
 
   # ===== IAM ROLE FOR LAMBDA (OVERLY PERMISSIVE) =====
   # VULNERABILITY: Admin access, no least privilege
@@ -69,6 +236,12 @@ Resources:
       Runtime: python3.9
       Handler: index.handler
       Role: !GetAtt LambdaExecutionRoleInsecure.Arn
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroupInsecure
+        SubnetIds:
+          - !Ref PrivateSubnet1Insecure
+          - !Ref PrivateSubnet2Insecure
       Environment:
         Variables:
           DB_HOST: !GetAtt TransactionDatabase.Endpoint.Address
@@ -121,6 +294,12 @@ Resources:
       Runtime: python3.9
       Handler: index.handler
       Role: !GetAtt LambdaExecutionRoleInsecure.Arn
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroupInsecure
+        SubnetIds:
+          - !Ref PrivateSubnet1Insecure
+          - !Ref PrivateSubnet2Insecure
       Environment:
         Variables:
           DB_HOST: !GetAtt TransactionDatabase.Endpoint.Address
@@ -235,6 +414,26 @@ Resources:
       StageName: !Ref Environment
 
 Outputs:
+  VPCId:
+    Value: !Ref InsecureBankVPC
+    Description: VPC ID (insecure configuration)
+
+  PublicSubnetId:
+    Value: !Ref PublicSubnetInsecure
+    Description: Public subnet (for NAT Gateway)
+
+  PrivateSubnet1Id:
+    Value: !Ref PrivateSubnet1Insecure
+    Description: Private subnet 1 (for RDS and Lambda)
+
+  PrivateSubnet2Id:
+    Value: !Ref PrivateSubnet2Insecure
+    Description: Private subnet 2 (for RDS and Lambda)
+
+  NATGatewayIP:
+    Value: !Ref NATGatewayEIPInsecure
+    Description: Elastic IP for NAT Gateway
+
   APIEndpoint:
     Value: !Sub "https://${APIGatewayRestApiInsecure}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
     Description: INSECURE API endpoint - DO NOT USE IN PRODUCTION
