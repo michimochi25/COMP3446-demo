@@ -15,6 +15,48 @@ This phase demonstrates how security controls are applied during the Implement p
 
 ---
 
+## VPC Architecture (Secure Template)
+
+```
+SecureBank VPC (10.0.0.0/16)
+│
+├─ PublicSubnet (10.0.0.0/24)
+│  ├─ Internet Gateway (IGW)
+│  └─ NAT Gateway (Elastic IP: static outbound IP)
+│
+├─ PrivateSubnet1 (10.0.1.0/24)
+│  ├─ Lambda Functions (GET /transactions, POST /transfer)
+│  └─ RDS Multi-AZ (MySQL) — Encrypted, no internet access
+│
+└─ PrivateSubnet2 (10.0.2.0/24)
+   ├─ Lambda Functions (redundancy)
+   └─ RDS Replica (for Multi-AZ failover)
+
+Network Flow:
+┌─────────────────────────────────────────────────────────┐
+│ Client                                                  │
+│   ↓ (HTTPS)                                             │
+│ API Gateway + Cognito Authorizer + AWS WAF              │
+│   ↓ (VPC Endpoint)                                      │
+│ Lambda in PrivateSubnet1/2                              │
+│   ├→ RDS (10.0.1.0/24 SG only) — Internal only         │
+│   └→ AWS Services (via NAT Gateway)                     │
+│       ├─ Secrets Manager (retrieve DB password)         │
+│       ├─ KMS (decrypt/encrypt)                          │
+│       ├─ S3 (write audit logs)                          │
+│       └─ CloudWatch (send logs)                         │
+└─────────────────────────────────────────────────────────┘
+
+CIDR Planning:
+- VPC: 10.0.0.0/16 (65,536 IPs)
+  - Public:   10.0.0.0/24 (256 IPs) — NAT Gateway
+  - Private1: 10.0.1.0/24 (256 IPs) — RDS, Lambda (AZ1)
+  - Private2: 10.0.2.0/24 (256 IPs) — RDS, Lambda (AZ2)
+  - Reserved: 10.0.3.0/24 - 10.0.255.0/24 (future expansion)
+```
+
+---
+
 ## Vulnerabilities in Insecure Template
 
 The insecure template demonstrates real-world security mistakes aligned with STRIDE:
@@ -129,18 +171,62 @@ TransactionDatabaseSecure:
     - slowquery
 ```
 
-### 5. **Network Isolation** ✅
+### 5. **Network Isolation (Zero Trust)** ✅
 
 ```yaml
-# Private VPC subnets for RDS and Lambda
+# Three-tier network with controlled outbound access:
+#
+# PublicSubnet (10.0.0.0/24)
+#   ├─ Internet Gateway
+#   └─ NAT Gateway (Elastic IP)
+#       ↓
+# PrivateSubnet1 (10.0.1.0/24) — RDS + Lambda
+# PrivateSubnet2 (10.0.2.0/24) — RDS + Lambda
+#
+# RDS: Private only (no internet)
+# Lambda: Private with outbound via NAT (for AWS service access)
+
+NATGateway:
+  AllocationId: !GetAtt NATGatewayEIP.AllocationId
+  SubnetId: !Ref PublicSubnet # ✅ NAT lives in public subnet
+  # Lambda uses NAT for outbound calls:
+  #   → secretsmanager:GetSecretValue (retrieve DB password)
+  #   → kms:Decrypt, kms:GenerateDataKey (encryption)
+  #   → s3:PutObject (write audit logs)
+  #   → logs:PutLogEvents (CloudWatch logs)
+
+PrivateRouteTable:
+  Route:
+    DestinationCidrBlock: 0.0.0.0/0
+    NatGatewayId: !Ref NATGateway # ✅ All outbound → NAT
+
 DBSecurityGroup:
   SecurityGroupIngress:
-    - SourceSecurityGroupId: !Ref LambdaSecurityGroup # Only from Lambda
+    - SourceSecurityGroupId: !Ref LambdaSecurityGroup # ✅ Only from Lambda
 
 TransactionDatabaseSecure:
-  PubliclyAccessible: false
+  PubliclyAccessible: false # ✅ Completely private, no internet access
   VPCSecurityGroups:
     - !Ref DBSecurityGroup
+```
+
+**Why NAT Gateway is Critical:**
+
+Without NAT Gateway, Lambda calls timeout ❌:
+
+```
+Lambda (10.0.1.0/24) → Secrets Manager API
+   ❌ No route to internet
+   ❌ Timeout error
+```
+
+With NAT Gateway, Lambda reaches AWS services ✅:
+
+```
+Lambda (10.0.1.0/24)
+   → NAT Gateway (10.0.0.0/24)
+   → Internet Gateway
+   → AWS Service APIs ✅
 ```
 
 ### 6. **DDoS Protection** ✅
@@ -306,6 +392,71 @@ except Exception as e:
         'statusCode': 500,
         'body': json.dumps({'error': 'An error occurred'})  # Generic message
     }
+```
+
+---
+
+## Troubleshooting Deployment Issues
+
+### Lambda Function can't reach Secrets Manager / KMS / S3
+
+**Symptom**: Lambda timeout or "Connection refused" errors in CloudWatch logs
+
+**Cause**: NAT Gateway not attached or route table not configured
+
+**Fix**:
+
+```bash
+# Verify NAT Gateway is in AVAILABLE state
+aws ec2 describe-nat-gateways --region ap-southeast-2 \
+  --query 'NatGateways[?Tags[?Key==`Name` && Value==`SecureBank-NAT`]].{ID:NatGatewayId,State:State,EIP:NatGatewayAddresses[0].PublicIp}'
+
+# Verify private subnet has route to NAT Gateway
+aws ec2 describe-route-tables --region ap-southeast-2 \
+  --query 'RouteTables[?Tags[?Key==`Name` && Value==`PrivateRouteTable`]].Routes' \
+  --output table
+
+# Expected output:
+# DestinationCidrBlock: 0.0.0.0/0 → NatGatewayId: nat-xxxxxxxxx
+```
+
+### Lambda can't reach RDS database
+
+**Symptom**: "Connection timeout" when Lambda tries to connect to RDS
+
+**Cause**: Security group rules are wrong, or Lambda not in same VPC
+
+**Fix**:
+
+```bash
+# Verify Lambda security group can reach RDS port 3306
+aws ec2 describe-security-groups --group-id sg-xxxxx --region ap-southeast-2 | \
+  jq '.SecurityGroups[0].SecurityGroupEgress[] | select(.FromPort==3306)'
+
+# Should show egress rule to RDS security group (not 0.0.0.0/0)
+
+# Verify RDS accepts traffic from Lambda security group
+aws ec2 describe-security-groups \
+  --group-id $(aws rds describe-db-instances --db-instance-identifier securebank-db-secure \
+    --region ap-southeast-2 --query 'DBInstances[0].VpcSecurityGroups[0].VpcSecurityGroupId' --output text) \
+  --region ap-southeast-2 | \
+  jq '.SecurityGroups[0].SecurityGroupIngress[] | select(.FromPort==3306)'
+
+# Should show ingress rule from Lambda security group
+```
+
+### S3 bucket name already exists
+
+**Symptom**: Stack creation fails with "BucketAlreadyExists"
+
+**Cause**: S3 bucket names are globally unique; try deploying with different account
+
+**Fix**:
+
+```bash
+# The template generates bucket name with account ID, should be unique
+# If still fails, delete the old bucket first:
+aws s3 rb s3://securebank-audit-logs-${ACCOUNT_ID}-secure --force --region ap-southeast-2
 ```
 
 ---

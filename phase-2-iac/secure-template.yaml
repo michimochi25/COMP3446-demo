@@ -24,6 +24,104 @@ Resources:
         - Key: Name
           Value: SecureBank-VPC
 
+  # ===== INTERNET GATEWAY (FOR PUBLIC SUBNET) =====
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: SecureBank-IGW
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Public Subnet for NAT Gateway
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      CidrBlock: 10.0.0.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: false # NAT Gateway, not instances
+      Tags:
+        - Key: Name
+          Value: PublicSubnet
+
+  # ===== NAT GATEWAY FOR PRIVATE SUBNET OUTBOUND ACCESS =====
+  NATGatewayEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: SecureBank-NAT-EIP
+
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NATGatewayEIP.AllocationId
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: SecureBank-NAT
+
+  # ===== ROUTE TABLES =====
+  # Public Route Table - Routes traffic through Internet Gateway
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      Tags:
+        - Key: Name
+          Value: PublicRouteTable
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  # Private Route Table - Routes outbound traffic through NAT Gateway
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      Tags:
+        - Key: Name
+          Value: PrivateRouteTable
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    DependsOn: NATGateway
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
   # Private Subnet for RDS
   PrivateSubnet1:
     Type: AWS::EC2::Subnet
@@ -782,6 +880,26 @@ Resources:
           IncludeManagementEvents: true
 
 Outputs:
+  VPCId:
+    Value: !Ref SecureBankVPC
+    Description: VPC ID for SecureBank
+
+  PublicSubnetId:
+    Value: !Ref PublicSubnet
+    Description: Public subnet (for NAT Gateway)
+
+  PrivateSubnet1Id:
+    Value: !Ref PrivateSubnet1
+    Description: Private subnet 1 (for RDS and Lambda)
+
+  PrivateSubnet2Id:
+    Value: !Ref PrivateSubnet2
+    Description: Private subnet 2 (for RDS and Lambda)
+
+  NATGatewayIP:
+    Value: !Ref NATGatewayEIP
+    Description: Elastic IP for NAT Gateway (static outbound IP)
+
   APIEndpoint:
     Value: !Sub "https://${APIGatewayRestApiSecure}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
     Description: Secure API endpoint with Cognito authentication
