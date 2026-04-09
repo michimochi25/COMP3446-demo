@@ -149,6 +149,7 @@ Resources:
     Properties:
       Name: /SecureBank/prod/db-credentials
       Description: RDS database credentials - Rotated automatically
+      KmsKeyId: !GetAtt KMSKeyForEncryption.Arn
       GenerateSecretString:
         SecretStringTemplate: '{"username": "admin"}'
         GenerateStringKey: "password"
@@ -160,6 +161,7 @@ Resources:
     Type: AWS::KMS::Key
     Properties:
       Description: KMS key for SecureBank encryption at rest
+      EnableKeyRotation: true
       KeyPolicy:
         Version: "2012-10-17"
         Statement:
@@ -245,6 +247,22 @@ Resources:
       EnableAutoMinorVersionUpgrade: false
       CopyTagsToSnapshot: true
       DeleteAutomatedBackups: false
+      MonitoringInterval: 60 # ✅ Enhanced monitoring enabled
+      MonitoringRoleArn: !GetAtt RDSMonitoringRole.Arn
+
+  # ===== RDS ENHANCED MONITORING ROLE =====
+  RDSMonitoringRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: monitoring.rds.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole
 
   # ===== S3 BUCKET FOR AUDIT LOGS (SECURE & ENCRYPTED) =====
   AuditLogsBucketSecure:
@@ -374,6 +392,10 @@ Resources:
       Runtime: python3.11
       Handler: index.handler
       Role: !GetAtt LambdaExecutionRoleSecure.Arn
+      Timeout: 30
+      ReservedConcurrentExecutions: 100
+      DeadLetterConfig:
+        TargetArn: !GetAtt GetTransactionDLQQueue.Arn
       VpcConfig:
         SecurityGroupIds:
           - !Ref LambdaSecurityGroup
@@ -387,6 +409,7 @@ Resources:
           DB_NAME: secure_bank
           AUDIT_BUCKET: !Ref AuditLogsBucketSecure
           KMS_KEY_ID: !GetAtt KMSKeyForEncryption.Arn
+      KmsKeyArn: !GetAtt KMSKeyForEncryption.Arn
       Code:
         ZipFile: |
           import json
@@ -520,6 +543,14 @@ Resources:
                       'body': json.dumps({'error': 'An error occurred'})
                   }
 
+  # ===== DEAD LETTER QUEUE FOR GET TRANSACTION LAMBDA =====
+  GetTransactionDLQQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: get-transaction-dlq
+      KmsMasterKeyId: !GetAtt KMSKeyForEncryption.Arn
+      MessageRetentionPeriod: 1209600
+
   # ===== TRANSFER FUNDS LAMBDA (SECURE) =====
   # Security controls:
   # - Cognito authentication required
@@ -537,6 +568,9 @@ Resources:
       Handler: index.handler
       Role: !GetAtt LambdaExecutionRoleSecure.Arn
       Timeout: 30
+      ReservedConcurrentExecutions: 50
+      DeadLetterConfig:
+        TargetArn: !GetAtt TransferFundsDLQQueue.Arn
       VpcConfig:
         SecurityGroupIds:
           - !Ref LambdaSecurityGroup
@@ -550,6 +584,7 @@ Resources:
           DB_NAME: secure_bank
           AUDIT_BUCKET: !Ref AuditLogsBucketSecure
           KMS_KEY_ID: !GetAtt KMSKeyForEncryption.Arn
+      KmsKeyArn: !GetAtt KMSKeyForEncryption.Arn
       Code:
         ZipFile: |
           import json
@@ -739,6 +774,14 @@ Resources:
                       'body': json.dumps({'error': 'An error occurred'})
                   }
 
+  # ===== DEAD LETTER QUEUE FOR TRANSFER FUNDS LAMBDA =====
+  TransferFundsDLQQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: transfer-funds-dlq
+      KmsMasterKeyId: !GetAtt KMSKeyForEncryption.Arn
+      MessageRetentionPeriod: 1209600
+
   # ===== API GATEWAY (SECURE WITH COGNITO AUTHORIZATION) =====
   APIGatewayRestApiSecure:
     Type: AWS::ApiGateway::RestApi
@@ -815,6 +858,7 @@ Resources:
       DefaultAction:
         Allow: {}
       Rules:
+        # Rate limit to prevent abuse (e.g. brute force, DDoS)
         - Name: RateLimitRule
           Priority: 0
           Action:
@@ -823,6 +867,7 @@ Resources:
             RateBasedStatement:
               Limit: 2000
               AggregateKeyType: IP
+        # Block common attack patterns (OWASP Top 10)
         - Name: AWSManagedRulesCommonRuleSet
           Priority: 1
           OverrideAction:
@@ -831,6 +876,7 @@ Resources:
             ManagedRuleGroupStatement:
               VendorName: AWS
               Name: AWSManagedRulesCommonRuleSet
+        # Block SQL injection attempts
         - Name: AWSManagedRulesSQLiRuleSet
           Priority: 2
           OverrideAction:
@@ -839,6 +885,19 @@ Resources:
             ManagedRuleGroupStatement:
               VendorName: AWS
               Name: AWSManagedRulesSQLiRuleSet
+        # Block the Log4j (Log4Shell) vulnerability.
+        - Name: AWSManagedRulesKnownBadInputsRuleSet
+          Priority: 3
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesKnownBadInputsRuleSet
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSKnownBadInputsRuleSetMetric
       VisibilityConfig:
         SampledRequestsEnabled: true
         CloudWatchMetricsEnabled: true
@@ -864,6 +923,15 @@ Resources:
                 Action:
                   - s3:PutObject
                 Resource: !Sub "${AuditLogsBucketSecure.Arn}/*"
+        - PolicyName: CloudTrailKMSPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - kms:GenerateDataKey
+                  - kms:DecryptDataKey
+                Resource: !GetAtt KMSKeyForEncryption.Arn
 
   SecureBankTrail:
     Type: AWS::CloudTrail::Trail
@@ -875,6 +943,7 @@ Resources:
       IsMultiRegionTrail: true
       IncludeGlobalServiceEvents: true
       EnableLogFileValidation: true # ✅ Immutable logs
+      KMSKeyId: !GetAtt KMSKeyForEncryption.Arn # ✅ CloudTrail encryption at rest
       EventSelectors:
         - ReadWriteType: All
           IncludeManagementEvents: true
