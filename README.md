@@ -1,7 +1,5 @@
 # COMP3446-demo
 
-I am making a demonstration on the topic of Cloud SDLC AWS. The format will be making a small project where I apply every phase of Cloud SDLC.
-
 # Scenario: Securing a Banking API Across the SDLC
 
 We're building a cloud-native REST API for SecureBank's transaction processing system. Follow each phase to see how security controls are applied — from threat modelling to production monitoring.
