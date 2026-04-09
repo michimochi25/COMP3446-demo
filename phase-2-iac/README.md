@@ -150,7 +150,7 @@ GetTransactionMethod:
 ### 2. **Encryption at Rest** ✅
 
 ```yaml
-# KMS encryption for RDS and S3
+# KMS encryption for RDS, S3, Lambda env vars, and CloudTrail
 TransactionDatabaseSecure:
   StorageEncrypted: true
   KmsKeyId: !GetAtt KMSKeyForEncryption.Arn
@@ -160,40 +160,76 @@ AuditLogsBucketSecure:
     ServerSideEncryptionConfiguration:
       - ServerSideEncryptionByDefault:
           SSEAlgorithm: aws:kms
+          KMSMasterKeyID: !GetAtt KMSKeyForEncryption.Arn
+
+SecureBankTrail:
+  KMSKeyId: !GetAtt KMSKeyForEncryption.Arn # CloudTrail logs encrypted at rest (CKV_AWS_35)
+
+# KMS Key with Automatic Annual Rotation (CKV_AWS_7)
+KMSKeyForEncryption:
+  Type: AWS::KMS::Key
+  Properties:
+    EnableKeyRotation: true # Automatic key rotation enabled
+```
+
+### 2a. **Secrets Manager Encryption (CKV_AWS_149)** ✅
+
+```yaml
+# Secrets Manager encrypted with customer-managed KMS key
+DBCredentialsSecret:
+  Type: AWS::SecretsManager::Secret
+  Properties:
+    KmsKeyId: !GetAtt KMSKeyForEncryption.Arn # KMS encrypted at rest
+    GenerateSecretString:
+      PasswordLength: 32 # Automatically rotated
 ```
 
 ### 3. **Encryption in Transit** ✅
 
 ```yaml
-# Secrets Manager instead of hardcoded passwords
-DBCredentialsSecret:
-  Type: AWS::SecretsManager::Secret
-  Properties:
-    GenerateSecretString:
-      PasswordLength: 32 # Rotating secrets
-
-# Lambda retrieves secrets at runtime
+# Lambda retrieves secrets securely at runtime (never hardcoded)
 def get_db_credentials():
   response = secrets_client.get_secret_value(SecretId=secret_arn)
   return json.loads(response['SecretString'])
 ```
 
+### 3a. **Lambda Environment Variable Encryption (CKV_AWS_173)** ✅
+
+```yaml
+# Lambda environment variables encrypted at rest with KMS
+GetTransactionFunctionSecure:
+  Type: AWS::Lambda::Function
+  Properties:
+    KmsKeyArn: !GetAtt KMSKeyForEncryption.Arn # Env vars encrypted
+    ReservedConcurrentExecutions: 100 # Concurrency limit (CKV_AWS_115)
+    DeadLetterConfig:
+      TargetArn: !GetAtt GetTransactionDLQQueue.Arn # DLQ (CKV_AWS_116)
+    Environment:
+      Variables:
+        DB_SECRET_ARN: !GetAtt DBCredentialsSecret.Arn
+        KMS_KEY_ID: !GetAtt KMSKeyForEncryption.Arn
+```
+
 ### 4. **Audit & Logging** ✅
 
 ```yaml
-# CloudTrail for immutable API audit
+# CloudTrail for immutable, encrypted API audit (CKV_AWS_35)
 SecureBankTrail:
   EnableLogFileValidation: true # Prevent tampering
+  KMSKeyId: !GetAtt KMSKeyForEncryption.Arn # CloudTrail logs encrypted
 
 # Application-level audit logs to encrypted S3
 def audit_log(event_type, user_id, account_id, status): log_entry = {...}
   s3_client.put_object(
   Bucket=AUDIT_BUCKET,
-  ServerSideEncryption='aws:kms'
+  ServerSideEncryption='aws:kms',
+  SSEKMSKeyId=KMS_KEY_ID
   )
 
-# Database logging
+# Database logging and enhanced monitoring (CKV_AWS_118)
 TransactionDatabaseSecure:
+  MonitoringInterval: 60 # Enhanced RDS monitoring every 60 seconds
+  MonitoringRoleArn: !GetAtt RDSMonitoringRole.Arn
   EnableCloudwatchLogsExports:
     - error
     - general
@@ -258,16 +294,17 @@ Lambda (10.0.1.0/24)
    → AWS Service APIs ✅
 ```
 
-### 6. **DDoS Protection** ✅
+### 6. **DDoS & Vulnerability Protection** ✅
 
 ```yaml
-# AWS WAF with rate limiting and SQL injection protection
+# AWS WAF with rate limiting, SQL injection, and Log4j protection
 WAFWebACL:
   Rules:
     - RateLimitRule:
         Limit: 2000 req/min per IP
     - AWSManagedRulesSQLiRuleSet # Block SQL injection
-    - AWSManagedRulesCommonRuleSet
+    - AWSManagedRulesCommonRuleSet # OWASP Top 10
+    - AWSManagedRulesKnownBadInputsRuleSet # Log4j CVE-2021-44228 protection (CKV_AWS_192)
 ```
 
 ### 7. **Least Privilege IAM** ✅
