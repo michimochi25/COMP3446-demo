@@ -73,6 +73,7 @@ aws cloudformation create-stack \
   --template-body file://phase-2-iac/insecure-template.yaml \
   --parameters ParameterKey=Environment,ParameterValue=dev \
   --region ap-southeast-2
+  --capabilities CAPABILITY_IAM
 
 # Wait for stack creation
 aws cloudformation wait stack-create-complete \
