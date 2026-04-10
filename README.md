@@ -180,27 +180,27 @@ aws cloudformation describe-stacks \
 ```bash
 # Check RDS encryption
 aws rds describe-db-instances \
-  --db-instance-identifier securebank-db-secure \
+  --db-instance-identifier securebank-db \
   --query 'DBInstances[0].StorageEncrypted' \
   --region ap-southeast-2
 # Output: true
 
 # Check RDS is private (not publicly accessible)
 aws rds describe-db-instances \
-  --db-instance-identifier securebank-db-secure \
+  --db-instance-identifier securebank-db \
   --query 'DBInstances[0].PubliclyAccessible' \
   --region ap-southeast-2
 # Output: false
 
 # Check S3 encryption
-aws s3api head-bucket \
-  --bucket securebank-audit-logs-$(aws sts get-caller-identity --query Account --output text)-secure \
+aws s3api get-bucket-encryption \
+  --bucket securebank-audit-logs-$(aws sts get-caller-identity --query Account --output text) \
   --query 'ServerSideEncryption' \
   --region ap-southeast-2
 
 # Check S3 public access is blocked
 aws s3api get-public-access-block \
-  --bucket securebank-audit-logs-$(aws sts get-caller-identity --query Account --output text)-secure \
+  --bucket securebank-audit-logs-$(aws sts get-caller-identity --query Account --output text) \
   --region ap-southeast-2
 
 # Check CloudTrail is enabled
