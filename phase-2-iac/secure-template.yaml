@@ -244,6 +244,7 @@ Resources:
       AllocatedStorage: 20
       StorageType: gp3
       StorageEncrypted: true
+      EnableIAMDatabaseAuthentication: true
       KmsKeyId: !GetAtt KMSKeyForEncryption.Arn
       MasterUsername: !Sub "{{resolve:secretsmanager:${DBCredentialsSecret}:SecretString:username}}"
       MasterUserPassword: !Sub "{{resolve:secretsmanager:${DBCredentialsSecret}:SecretString:password}}"
@@ -336,6 +337,82 @@ Resources:
               Bool:
                 "aws:SecureTransport": "false"
 
+  # ===== S3 BUCKETS FOR CODEBUILD =====
+  SecureBankAccessLogsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "securebank-access-logs-${AWS::AccountId}"
+      # checkov:skip=CKV_AWS_18:Ensure the S3 bucket has access logging enabled
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+
+  SecureBankAccessLogsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SecureBankAccessLogsBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: S3ServerAccessLogsPolicy
+            Effect: Allow
+            Principal:
+              Service: logging.s3.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub "${SecureBankAccessLogsBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref "AWS::AccountId"
+
+  SecureBankSourceBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "securebank-source-${AWS::AccountId}"
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LoggingConfiguration:
+        DestinationBucketName: !Ref SecureBankAccessLogsBucket
+        LogFilePrefix: "securebank-source-bucket/"
+
+  SecureBankTestResultsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "securebank-test-results-${AWS::AccountId}"
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LoggingConfiguration:
+        DestinationBucketName: !Ref SecureBankAccessLogsBucket
+        LogFilePrefix: "securebank-test-results-bucket/"
+
   # ===== IAM ROLE FOR LAMBDA =====
   LambdaExecutionRole:
     Type: AWS::IAM::Role
@@ -381,6 +458,50 @@ Resources:
                 Resource:
                   - !GetAtt GetTransactionDLQ.Arn
                   - !GetAtt TransferFundsDLQ.Arn
+
+  # ===== IAM ROLE FOR CODE BUILD =====
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: CodeBuildRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+
+      Policies:
+        - PolicyName: CodeBuildSecureBankPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Access to write logs to CloudWatch
+              - Sid: CloudWatchLogsWriteAccess
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/securebank"
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/securebank:*"
+
+              # Access to download the zipped source code
+              - Sid: S3SourceReadAccess
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                Resource: !Sub "arn:aws:s3:::securebank-source-${AWS::AccountId}/*"
+
+              # Access to upload the completed test results
+              - Sid: S3ArtifactWriteAccess
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub "arn:aws:s3:::securebank-test-results-${AWS::AccountId}/*"
 
   # ===== DEAD LETTER QUEUES =====
   GetTransactionDLQ:
