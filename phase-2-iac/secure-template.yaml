@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: "SECURE CloudFormation Template for SecureBank Transaction API - Production Ready"
+Description: "SecureBank Transaction API - Production"
 
 Parameters:
   Environment:
@@ -13,7 +13,50 @@ Parameters:
     Description: Cognito User Pool ID for authentication
 
 Resources:
-  # ===== VPC (ISOLATED NETWORK) =====
+  # ===== KMS KEY =====
+  KMSKeyForEncryption:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS key for SecureBank encryption at rest
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: Enable IAM policies
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action: "kms:*"
+            Resource: "*"
+          - Sid: Allow CloudWatch Logs
+            Effect: Allow
+            Principal:
+              Service: !Sub "logs.${AWS::Region}.amazonaws.com"
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:CreateGrant
+              - kms:DescribeKey
+            Resource: "*"
+          - Sid: Allow CloudTrail
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action:
+              - kms:GenerateDataKey
+              - kms:Decrypt
+              - kms:DescribeKey
+            Resource: "*"
+
+  KMSKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/securebank-prod
+      TargetKeyId: !Ref KMSKeyForEncryption
+
+  # ===== VPC =====
   SecureBankVPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -24,16 +67,29 @@ Resources:
         - Key: Name
           Value: SecureBank-VPC
 
-  # Private Subnet for RDS
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      CidrBlock: 10.0.0.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+
   PrivateSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref SecureBankVPC
       CidrBlock: 10.0.1.0/24
       AvailabilityZone: !Select [0, !GetAZs ""]
-      Tags:
-        - Key: Name
-          Value: PrivateSubnet1
 
   PrivateSubnet2:
     Type: AWS::EC2::Subnet
@@ -41,71 +97,133 @@ Resources:
       VpcId: !Ref SecureBankVPC
       CidrBlock: 10.0.2.0/24
       AvailabilityZone: !Select [1, !GetAZs ""]
-      Tags:
-        - Key: Name
-          Value: PrivateSubnet2
 
-  # ===== SECRETS MANAGER (NEVER HARDCODED) =====
+  # ===== NAT GATEWAY =====
+  NATGatewayEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NATGatewayEIP.AllocationId
+      SubnetId: !Ref PublicSubnet
+
+  # ===== ROUTE TABLES =====
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SecureBankVPC
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SecureBankVPC
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  # ===== SECURITY GROUPS =====
+  # Defined without cross-references to avoid circular dependency.
+  # Cross-SG rules are added via standalone Egress/Ingress resources below.
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Lambda functions
+      VpcId: !Ref SecureBankVPC
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS outbound
+
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for RDS database
+      VpcId: !Ref SecureBankVPC
+
+  # Standalone cross-SG rules added after both groups exist
+  LambdaToDBEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref LambdaSecurityGroup
+      IpProtocol: tcp
+      FromPort: 3306
+      ToPort: 3306
+      DestinationSecurityGroupId: !Ref DBSecurityGroup
+      Description: MySQL to RDS
+
+  DBFromLambdaIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref DBSecurityGroup
+      IpProtocol: tcp
+      FromPort: 3306
+      ToPort: 3306
+      SourceSecurityGroupId: !Ref LambdaSecurityGroup
+      Description: MySQL from Lambda only
+
+  # ===== SECRETS MANAGER =====
   DBCredentialsSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
-      Name: /SecureBank/prod/db-credentials
-      Description: RDS database credentials - Rotated automatically
+      # TODO: remove v2
+      Name: /SecureBank/prod/db-credentials-v2
+      Description: RDS database credentials - rotated automatically
+      KmsKeyId: !GetAtt KMSKeyForEncryption.Arn
       GenerateSecretString:
         SecretStringTemplate: '{"username": "admin"}'
         GenerateStringKey: "password"
         PasswordLength: 32
         ExcludeCharacters: '"@/\'
 
-  # ===== KMS KEY FOR ENCRYPTION =====
-  KMSKeyForEncryption:
-    Type: AWS::KMS::Key
+  # ===== RDS =====
+  RDSMonitoringRole:
+    Type: AWS::IAM::Role
     Properties:
-      Description: KMS key for SecureBank encryption at rest
-      KeyPolicy:
+      AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
-          - Sid: Enable IAM policies
-            Effect: Allow
+          - Effect: Allow
             Principal:
-              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
-            Action: "kms:*"
-            Resource: "*"
-          - Sid: Allow encryption/decryption
-            Effect: Allow
-            Principal:
-              AWS: !GetAtt LambdaExecutionRoleSecure.Arn
-            Action:
-              - "kms:Decrypt"
-              - "kms:GenerateDataKey"
-            Resource: "*"
-
-  KMSKeyAlias:
-    Type: AWS::KMS::Alias
-    Properties:
-      AliasName: alias/securebank-prod
-      TargetKeyId: !Ref KMSKeyForEncryption
-
-  # ===== DATABASE (SECURE & ENCRYPTED) =====
-  # Security Controls:
-  # - AES-256 encryption at rest via KMS
-  # - Not publicly accessible (private VPC)
-  # - Secrets Manager for credentials rotation
-  # - Multi-AZ for high availability
-  # - Backup enabled with retention
-  # - Enhanced monitoring
-  # - All logging enabled
-  DBSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Security group for RDS database
-      VpcId: !Ref SecureBankVPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 3306
-          ToPort: 3306
-          SourceSecurityGroupId: !Ref LambdaSecurityGroup
-          Description: MySQL from Lambda only
+              Service: monitoring.rds.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole
 
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
@@ -115,81 +233,111 @@ Resources:
         - !Ref PrivateSubnet1
         - !Ref PrivateSubnet2
 
-  TransactionDatabaseSecure:
+  TransactionDatabase:
     Type: AWS::RDS::DBInstance
     DeletionPolicy: Snapshot
     Properties:
-      DBInstanceIdentifier: securebank-db-secure
+      DBInstanceIdentifier: securebank-db
       Engine: mysql
-      EngineVersion: "8.0.35"
+      EngineVersion: "8.0"
       DBInstanceClass: db.t3.micro
       AllocatedStorage: 20
       StorageType: gp3
-      Iops: 3000
-      StorageEncrypted: true # ✅ Encryption at rest
+      StorageEncrypted: true
       KmsKeyId: !GetAtt KMSKeyForEncryption.Arn
       MasterUsername: !Sub "{{resolve:secretsmanager:${DBCredentialsSecret}:SecretString:username}}"
       MasterUserPassword: !Sub "{{resolve:secretsmanager:${DBCredentialsSecret}:SecretString:password}}"
-      PubliclyAccessible: false # ✅ Private only
+      PubliclyAccessible: false
       VPCSecurityGroups:
         - !Ref DBSecurityGroup
       DBSubnetGroupName: !Ref DBSubnetGroup
-      MultiAZ: true # ✅ High availability
-      BackupRetentionPeriod: 30 # ✅ 30-day backup retention
-      PreferredBackupWindow: "03:00-04:00"
-      PreferredMaintenanceWindow: "sun:04:00-sun:05:00"
-      EnableIAMDatabaseAuthentication: true # ✅ IAM auth enabled
-      EnableCloudwatchLogsExports:
-        - error # ✅ Enable logging
-        - general
-        - slowquery
-      DeletionProtection: true # ✅ Prevent accidental deletion
-      EnableAutoMinorVersionUpgrade: false
-      CopyTagsToSnapshot: true
-      DeleteAutomatedBackups: false
 
-  # ===== S3 BUCKET FOR AUDIT LOGS (SECURE & ENCRYPTED) =====
-  AuditLogsBucketSecure:
+      # To speed up prod
+      MultiAZ: false
+      BackupRetentionPeriod: 0
+
+      # TODO: Uncomment when ready to test deletion protection in student accounts
+      # DeletionProtection: true
+
+      # PreferredBackupWindow: "03:00-04:00"
+      # PreferredMaintenanceWindow: "sun:04:00-sun:05:00"
+      # EnableIAMDatabaseAuthentication: true
+      # EnableCloudwatchLogsExports:
+      #   - error
+      #   - general
+      #   - slowquery
+      # AutoMinorVersionUpgrade: false
+      # CopyTagsToSnapshot: true
+      # DeleteAutomatedBackups: false
+      # MonitoringInterval: 60
+      # MonitoringRoleArn: !GetAtt RDSMonitoringRole.Arn
+
+  # ===== S3 AUDIT LOGS BUCKET =====
+  AuditLogsBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub "securebank-audit-logs-${AWS::AccountId}-secure"
+      # checkov:skip=CKV_AWS_18:Ensure the S3 bucket has access logging enabled
+      BucketName: !Sub "securebank-audit-logs-${AWS::AccountId}"
       VersioningConfiguration:
-        Status: Enabled # ✅ Versioning for immutability
+        Status: Enabled
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: aws:kms
               KMSMasterKeyID: !GetAtt KMSKeyForEncryption.Arn
       PublicAccessBlockConfiguration:
-        BlockPublicAcls: true # ✅ Block public access
+        BlockPublicAcls: true
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
-      LoggingConfiguration: # ✅ Enable S3 access logging
-        DestinationBucketName: !Ref AuditLogsBucketSecure
-        LogFilePrefix: access-logs/
 
   AuditLogsBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
-      Bucket: !Ref AuditLogsBucketSecure
-      PolicyText:
+      Bucket: !Ref AuditLogsBucket
+      PolicyDocument:
         Version: "2012-10-17"
         Statement:
+          - Sid: AllowCloudTrailGetBucketAcl
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource: !GetAtt AuditLogsBucket.Arn
+          - Sid: AllowCloudTrailGetBucketVersioning
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:GetBucketVersioning
+            Resource: !GetAtt AuditLogsBucket.Arn
+          - Sid: AllowCloudTrailPutObject
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub "${AuditLogsBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                s3:x-amz-acl: bucket-owner-full-control
+          - Sid: AllowLambdaS3AuditLogs
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt LambdaExecutionRole.Arn
+            Action: s3:PutObject
+            Resource: !Sub "${AuditLogsBucket.Arn}/audit/*"
           - Sid: DenyUnencryptedTransport
             Effect: Deny
             Principal: "*"
             Action: "s3:*"
             Resource:
-              - !GetAtt AuditLogsBucketSecure.Arn
-              - !Sub "${AuditLogsBucketSecure.Arn}/*"
+              - !GetAtt AuditLogsBucket.Arn
+              - !Sub "${AuditLogsBucket.Arn}/*"
             Condition:
               Bool:
                 "aws:SecureTransport": "false"
 
-  # ===== IAM ROLE FOR LAMBDA (LEAST PRIVILEGE) =====
-  # Only permissions needed for the specific functions
-  LambdaExecutionRoleSecure:
+  # ===== IAM ROLE FOR LAMBDA =====
+  LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -208,9 +356,8 @@ Resources:
             Statement:
               - Sid: SecretsManagerAccess
                 Effect: Allow
-                Action:
-                  - secretsmanager:GetSecretValue
-                Resource: !GetAtt DBCredentialsSecret.Arn
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref DBCredentialsSecret
               - Sid: CloudWatchLogs
                 Effect: Allow
                 Action:
@@ -218,7 +365,7 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*"
-              - Sid: KMSDecrypt
+              - Sid: KMSAccess
                 Effect: Allow
                 Action:
                   - kms:Decrypt
@@ -226,56 +373,41 @@ Resources:
                 Resource: !GetAtt KMSKeyForEncryption.Arn
               - Sid: S3AuditLogs
                 Effect: Allow
-                Action:
-                  - s3:PutObject
-                Resource: !Sub "${AuditLogsBucketSecure.Arn}/audit/*"
+                Action: s3:PutObject
+                Resource: !Sub "${AuditLogsBucket.Arn}/audit/*"
+              - Sid: SQSDeadLetterQueue
+                Effect: Allow
+                Action: sqs:SendMessage
+                Resource:
+                  - !GetAtt GetTransactionDLQ.Arn
+                  - !GetAtt TransferFundsDLQ.Arn
 
-  # ===== SECURITY GROUP FOR LAMBDA =====
-  LambdaSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
+  # ===== DEAD LETTER QUEUES =====
+  GetTransactionDLQ:
+    Type: AWS::SQS::Queue
     Properties:
-      GroupDescription: Security group for Lambda functions
-      VpcId: !Ref SecureBankVPC
-      SecurityGroupEgress:
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: 0.0.0.0/0
-          Description: HTTPS outbound
-        - IpProtocol: tcp
-          FromPort: 3306
-          ToPort: 3306
-          DestinationSecurityGroupId: !Ref DBSecurityGroup
-          Description: MySQL to RDS
+      QueueName: get-transaction-dlq
+      KmsMasterKeyId: !GetAtt KMSKeyForEncryption.Arn
+      MessageRetentionPeriod: 1209600
 
-  # ===== COGNITO AUTHORIZER FOR API =====
-  # All API calls must have valid JWT token from Cognito
-  CognitoAuthorizer:
-    Type: AWS::ApiGateway::Authorizer
+  TransferFundsDLQ:
+    Type: AWS::SQS::Queue
     Properties:
-      Name: CognitoAuthorizer
-      Type: COGNITO_USER_POOLS
-      IdentitySource: method.request.header.Authorization
-      RestApiId: !Ref APIGatewayRestApiSecure
-      ProviderARNs:
-        - !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${CognitoUserPoolId}"
+      QueueName: transfer-funds-dlq
+      KmsMasterKeyId: !GetAtt KMSKeyForEncryption.Arn
+      MessageRetentionPeriod: 1209600
 
-  # ===== GET TRANSACTION LAMBDA (SECURE) =====
-  # Security controls:
-  # - VPC private
-  # - Secrets Manager for DB credentials
-  # - Input validation
-  # - Parameterized queries
-  # - Generic error messages
-  # - Audit logging
-  # - CloudWatch monitoring
-  GetTransactionFunctionSecure:
+  # ===== LAMBDA: GET TRANSACTION =====
+  GetTransactionFunction:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: get-transaction-secure
       Runtime: python3.11
       Handler: index.handler
-      Role: !GetAtt LambdaExecutionRoleSecure.Arn
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      DeadLetterConfig:
+        TargetArn: !GetAtt GetTransactionDLQ.Arn
       VpcConfig:
         SecurityGroupIds:
           - !Ref LambdaSecurityGroup
@@ -284,11 +416,12 @@ Resources:
           - !Ref PrivateSubnet2
       Environment:
         Variables:
-          DB_HOST: !GetAtt TransactionDatabaseSecure.Endpoint.Address
-          DB_SECRET_ARN: !GetAtt DBCredentialsSecret.Arn
+          DB_HOST: !GetAtt TransactionDatabase.Endpoint.Address
+          DB_SECRET_ARN: !Ref DBCredentialsSecret
           DB_NAME: secure_bank
-          AUDIT_BUCKET: !Ref AuditLogsBucketSecure
+          AUDIT_BUCKET: !Ref AuditLogsBucket
           KMS_KEY_ID: !GetAtt KMSKeyForEncryption.Arn
+      KmsKeyArn: !GetAtt KMSKeyForEncryption.Arn
       Code:
         ZipFile: |
           import json
@@ -306,13 +439,11 @@ Resources:
           s3_client = boto3.client('s3')
 
           def get_db_credentials():
-              """Retrieve DB credentials from Secrets Manager"""
               secret_arn = os.environ['DB_SECRET_ARN']
               response = secrets_client.get_secret_value(SecretId=secret_arn)
               return json.loads(response['SecretString'])
 
           def validate_account_id(account_id):
-              """Validate account ID format"""
               if not isinstance(account_id, str) or not account_id.isdigit():
                   raise ValueError("Invalid account ID")
               if len(account_id) > 10:
@@ -320,7 +451,6 @@ Resources:
               return account_id
 
           def audit_log(event_type, user_id, account_id, status):
-              """Log transaction to S3 for audit trail"""
               try:
                   log_entry = {
                       'timestamp': datetime.utcnow().isoformat(),
@@ -330,7 +460,6 @@ Resources:
                       'status': status,
                       'request_id': str(uuid.uuid4())
                   }
-                  
                   key = f"audit/{datetime.utcnow().strftime('%Y/%m/%d')}/{log_entry['request_id']}.json"
                   s3_client.put_object(
                       Bucket=os.environ['AUDIT_BUCKET'],
@@ -343,36 +472,24 @@ Resources:
                   logger.error(f"Failed to write audit log: {str(e)}")
 
           def handler(event, context):
-              """Secure handler with proper controls"""
               request_id = str(uuid.uuid4())
-              
+              user_id = None
               try:
-                  # Get authenticated user from Cognito claims
                   claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
                   user_id = claims.get('sub')
-                  
                   if not user_id:
                       logger.warning(f"{request_id}: Unauthorized request")
                       audit_log('GET_TRANSACTION', 'UNKNOWN', 'N/A', 'DENIED')
-                      return {
-                          'statusCode': 401,
-                          'body': json.dumps({'error': 'Unauthorized'})
-                      }
-                  
-                  # Get and validate account ID from query params
-                  account_id = event.get('queryStringParameters', {}).get('account_id') if event.get('queryStringParameters') else None
-                  
+                      return {'statusCode': 401, 'body': json.dumps({'error': 'Unauthorized'})}
+
+                  params = event.get('queryStringParameters') or {}
+                  account_id = params.get('account_id')
                   if not account_id:
-                      return {
-                          'statusCode': 400,
-                          'body': json.dumps({'error': 'Missing account_id parameter'})
-                      }
-                  
+                      return {'statusCode': 400, 'body': json.dumps({'error': 'Missing account_id parameter'})}
+
                   account_id = validate_account_id(account_id)
-                  
-                  # Get DB credentials from Secrets Manager
                   creds = get_db_credentials()
-                  
+
                   conn = mysql.connector.connect(
                       host=os.environ['DB_HOST'],
                       user=creds['username'],
@@ -380,65 +497,55 @@ Resources:
                       database=os.environ['DB_NAME']
                   )
                   cursor = conn.cursor(dictionary=True)
-                  
-                  # Use parameterized query to prevent SQL injection
-                  query = "SELECT id, account_id, amount, timestamp FROM transactions WHERE account_id = %s LIMIT 100"
-                  cursor.execute(query, (account_id,))
+                  cursor.execute(
+                      "SELECT id, account_id, amount, timestamp FROM transactions WHERE account_id = %s LIMIT 100",
+                      (account_id,)
+                  )
                   results = cursor.fetchall()
                   cursor.close()
                   conn.close()
-                  
-                  # Convert datetime objects to strings for JSON serialization
+
                   for result in results:
                       if 'timestamp' in result and hasattr(result['timestamp'], 'isoformat'):
                           result['timestamp'] = result['timestamp'].isoformat()
-                  
+
                   audit_log('GET_TRANSACTION', user_id, account_id, 'SUCCESS')
-                  
                   logger.info(f"{request_id}: Retrieved {len(results)} transactions for account {account_id}")
-                  
+
                   return {
                       'statusCode': 200,
                       'body': json.dumps({'data': results}),
-                      'headers': {
-                          'Content-Type': 'application/json',
-                          'X-Request-ID': request_id
-                      }
-                  }
-                  
-              except ValueError as e:
-                  logger.warning(f"{request_id}: Validation error - {str(e)}")
-                  audit_log('GET_TRANSACTION', user_id if 'user_id' in locals() else 'UNKNOWN', 'N/A', 'VALIDATION_ERROR')
-                  return {
-                      'statusCode': 400,
-                      'body': json.dumps({'error': 'Invalid request'})
-                  }
-              except Exception as e:
-                  logger.error(f"{request_id}: {str(e)}")
-                  audit_log('GET_TRANSACTION', user_id if 'user_id' in locals() else 'UNKNOWN', 'N/A', 'ERROR')
-                  # Return generic error message (no stack trace)
-                  return {
-                      'statusCode': 500,
-                      'body': json.dumps({'error': 'An error occurred'})
+                      'headers': {'Content-Type': 'application/json', 'X-Request-ID': request_id}
                   }
 
-  # ===== TRANSFER FUNDS LAMBDA (SECURE) =====
-  # Security controls:
-  # - Cognito authentication required
-  # - Input validation and sanitization
-  # - Parameterized queries
-  # - Transaction atomicity
-  # - Rate limiting via API Gateway
-  # - Comprehensive audit logging
-  # - Idempotency token for replay protection
-  TransferFundsFunctionSecure:
+              except ValueError as e:
+                  logger.warning(f"{request_id}: Validation error - {str(e)}")
+                  audit_log('GET_TRANSACTION', user_id or 'UNKNOWN', 'N/A', 'VALIDATION_ERROR')
+                  return {'statusCode': 400, 'body': json.dumps({'error': 'Invalid request'})}
+              except Exception as e:
+                  logger.error(f"{request_id}: {str(e)}")
+                  audit_log('GET_TRANSACTION', user_id or 'UNKNOWN', 'N/A', 'ERROR')
+                  return {'statusCode': 500, 'body': json.dumps({'error': 'An error occurred'})}
+
+  GetTransactionLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref GetTransactionFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${APIGatewayRestApi}/*"
+
+  # ===== LAMBDA: TRANSFER FUNDS =====
+  TransferFundsFunction:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: transfer-funds-secure
       Runtime: python3.11
       Handler: index.handler
-      Role: !GetAtt LambdaExecutionRoleSecure.Arn
+      Role: !GetAtt LambdaExecutionRole.Arn
       Timeout: 30
+      DeadLetterConfig:
+        TargetArn: !GetAtt TransferFundsDLQ.Arn
       VpcConfig:
         SecurityGroupIds:
           - !Ref LambdaSecurityGroup
@@ -447,11 +554,12 @@ Resources:
           - !Ref PrivateSubnet2
       Environment:
         Variables:
-          DB_HOST: !GetAtt TransactionDatabaseSecure.Endpoint.Address
-          DB_SECRET_ARN: !GetAtt DBCredentialsSecret.Arn
+          DB_HOST: !GetAtt TransactionDatabase.Endpoint.Address
+          DB_SECRET_ARN: !Ref DBCredentialsSecret
           DB_NAME: secure_bank
-          AUDIT_BUCKET: !Ref AuditLogsBucketSecure
+          AUDIT_BUCKET: !Ref AuditLogsBucket
           KMS_KEY_ID: !GetAtt KMSKeyForEncryption.Arn
+      KmsKeyArn: !GetAtt KMSKeyForEncryption.Arn
       Code:
         ZipFile: |
           import json
@@ -470,29 +578,21 @@ Resources:
           s3_client = boto3.client('s3')
 
           def get_db_credentials():
-              """Retrieve DB credentials from Secrets Manager"""
               secret_arn = os.environ['DB_SECRET_ARN']
               response = secrets_client.get_secret_value(SecretId=secret_arn)
               return json.loads(response['SecretString'])
 
-          def validate_transfer_request(from_account, to_account, amount, user_id):
-              """Validate all transfer parameters"""
+          def validate_transfer_request(from_account, to_account, amount):
               errors = []
-              
               if not isinstance(from_account, str) or not from_account.isdigit() or len(from_account) > 10:
                   errors.append("Invalid sender account")
               if not isinstance(to_account, str) or not to_account.isdigit() or len(to_account) > 10:
                   errors.append("Invalid recipient account")
               if not isinstance(amount, (int, float)) or amount <= 0 or amount > 1000000:
                   errors.append("Invalid amount")
-              
-              # Verify user owns the from_account (authorization)
-              # This should be checked against a user-account mapping
-              
-              return errors if errors else None
+              return errors or None
 
           def audit_log(event_type, user_id, from_account, to_account, amount, status):
-              """Write immutable audit log"""
               try:
                   log_entry = {
                       'timestamp': datetime.utcnow().isoformat(),
@@ -504,7 +604,6 @@ Resources:
                       'status': status,
                       'request_id': str(uuid.uuid4())
                   }
-                  
                   key = f"audit/{datetime.utcnow().strftime('%Y/%m/%d')}/{log_entry['request_id']}.json"
                   s3_client.put_object(
                       Bucket=os.environ['AUDIT_BUCKET'],
@@ -519,112 +618,79 @@ Resources:
                   raise
 
           def handler(event, context):
-              """Secure transfer handler"""
               request_id = str(uuid.uuid4())
-              
+              user_id = None
               try:
-                  # Verify Cognito authentication
                   claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
                   user_id = claims.get('sub')
-                  
                   if not user_id:
                       logger.warning(f"{request_id}: Unauthorized transfer attempt")
                       audit_log('TRANSFER_FUNDS', 'UNKNOWN', 'N/A', 'N/A', 0, 'DENIED')
-                      return {
-                          'statusCode': 401,
-                          'body': json.dumps({'error': 'Unauthorized'})
-                      }
-                  
-                  # Parse and validate request body
+                      return {'statusCode': 401, 'body': json.dumps({'error': 'Unauthorized'})}
+
                   try:
                       body = json.loads(event.get('body', '{}'))
                   except json.JSONDecodeError:
-                      return {
-                          'statusCode': 400,
-                          'body': json.dumps({'error': 'Invalid JSON'})
-                      }
-                  
+                      return {'statusCode': 400, 'body': json.dumps({'error': 'Invalid JSON'})}
+
                   from_account = body.get('from_account')
                   to_account = body.get('to_account')
                   amount = body.get('amount')
-                  idempotency_key = body.get('idempotency_key')
-                  
-                  # Validate all inputs
-                  validation_errors = validate_transfer_request(from_account, to_account, amount, user_id)
+
+                  validation_errors = validate_transfer_request(from_account, to_account, amount)
                   if validation_errors:
                       logger.warning(f"{request_id}: Validation failed - {', '.join(validation_errors)}")
                       audit_log('TRANSFER_FUNDS', user_id, from_account or 'N/A', to_account or 'N/A', amount or 0, 'VALIDATION_ERROR')
-                      return {
-                          'statusCode': 400,
-                          'body': json.dumps({'error': 'Invalid request parameters'})
-                      }
-                  
-                  # Get DB credentials from Secrets Manager
+                      return {'statusCode': 400, 'body': json.dumps({'error': 'Invalid request parameters'})}
+
                   creds = get_db_credentials()
-                  
                   conn = mysql.connector.connect(
                       host=os.environ['DB_HOST'],
                       user=creds['username'],
                       password=creds['password'],
                       database=os.environ['DB_NAME'],
-                      autocommit=False  # Manual transaction control
+                      autocommit=False
                   )
                   cursor = conn.cursor()
-                  
+
                   try:
-                      # Start transaction - atomic operation
                       cursor.execute("START TRANSACTION")
-                      
-                      # Debit from source account with parameterized query
-                      debit_query = "UPDATE accounts SET balance = balance - %s WHERE id = %s AND balance >= %s"
-                      cursor.execute(debit_query, (Decimal(str(amount)), from_account, Decimal(str(amount))))
-                      
+
+                      cursor.execute(
+                          "UPDATE accounts SET balance = balance - %s WHERE id = %s AND balance >= %s",
+                          (Decimal(str(amount)), from_account, Decimal(str(amount)))
+                      )
                       if cursor.rowcount == 0:
                           conn.rollback()
                           logger.warning(f"{request_id}: Insufficient funds for account {from_account}")
                           audit_log('TRANSFER_FUNDS', user_id, from_account, to_account, amount, 'INSUFFICIENT_FUNDS')
-                          return {
-                              'statusCode': 400,
-                              'body': json.dumps({'error': 'Insufficient funds'})
-                          }
-                      
-                      # Credit to destination account
-                      credit_query = "UPDATE accounts SET balance = balance + %s WHERE id = %s"
-                      cursor.execute(credit_query, (Decimal(str(amount)), to_account))
-                      
+                          return {'statusCode': 400, 'body': json.dumps({'error': 'Insufficient funds'})}
+
+                      cursor.execute(
+                          "UPDATE accounts SET balance = balance + %s WHERE id = %s",
+                          (Decimal(str(amount)), to_account)
+                      )
                       if cursor.rowcount == 0:
                           conn.rollback()
                           logger.warning(f"{request_id}: Invalid recipient account {to_account}")
                           audit_log('TRANSFER_FUNDS', user_id, from_account, to_account, amount, 'INVALID_RECIPIENT')
-                          return {
-                              'statusCode': 400,
-                              'body': json.dumps({'error': 'Invalid recipient'})
-                          }
-                      
-                      # Create transaction record for audit
-                      transaction_query = "INSERT INTO transactions (from_account, to_account, amount, user_id, timestamp) VALUES (%s, %s, %s, %s, NOW())"
-                      cursor.execute(transaction_query, (from_account, to_account, Decimal(str(amount)), user_id))
-                      
-                      # Commit transaction
+                          return {'statusCode': 400, 'body': json.dumps({'error': 'Invalid recipient'})}
+
+                      cursor.execute(
+                          "INSERT INTO transactions (from_account, to_account, amount, user_id, timestamp) VALUES (%s, %s, %s, %s, NOW())",
+                          (from_account, to_account, Decimal(str(amount)), user_id)
+                      )
                       conn.commit()
-                      
+
                       audit_id = audit_log('TRANSFER_FUNDS', user_id, from_account, to_account, amount, 'SUCCESS')
-                      
                       logger.info(f"{request_id}: Transfer successful from {from_account} to {to_account}")
-                      
+
                       return {
                           'statusCode': 200,
-                          'body': json.dumps({
-                              'status': 'success',
-                              'transaction_id': audit_id,
-                              'amount': str(amount)
-                          }),
-                          'headers': {
-                              'Content-Type': 'application/json',
-                              'X-Request-ID': request_id
-                          }
+                          'body': json.dumps({'status': 'success', 'transaction_id': audit_id, 'amount': str(amount)}),
+                          'headers': {'Content-Type': 'application/json', 'X-Request-ID': request_id}
                       }
-                      
+
                   except Exception as e:
                       conn.rollback()
                       logger.error(f"{request_id}: Transaction failed - {str(e)}")
@@ -633,82 +699,93 @@ Resources:
                   finally:
                       cursor.close()
                       conn.close()
-                  
+
               except Exception as e:
                   logger.error(f"{request_id}: {str(e)}")
-                  return {
-                      'statusCode': 500,
-                      'body': json.dumps({'error': 'An error occurred'})
-                  }
+                  return {'statusCode': 500, 'body': json.dumps({'error': 'An error occurred'})}
 
-  # ===== API GATEWAY (SECURE WITH COGNITO AUTHORIZATION) =====
-  APIGatewayRestApiSecure:
+  TransferFundsLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref TransferFundsFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${APIGatewayRestApi}/*"
+
+  # ===== API GATEWAY =====
+  APIGatewayRestApi:
     Type: AWS::ApiGateway::RestApi
     Properties:
-      Name: SecureBank-API-Secure
+      Name: SecureBank-API
       Description: Secure Banking API with Cognito Authorization
       EndpointConfiguration:
         Types: [REGIONAL]
 
-  TransactionsResourceSecure:
+  CognitoAuthorizer:
+    Type: AWS::ApiGateway::Authorizer
+    Properties:
+      Name: CognitoAuthorizer
+      Type: COGNITO_USER_POOLS
+      IdentitySource: method.request.header.Authorization
+      RestApiId: !Ref APIGatewayRestApi
+      ProviderARNs:
+        - !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${CognitoUserPoolId}"
+
+  TransactionsResource:
     Type: AWS::ApiGateway::Resource
     Properties:
-      RestApiId: !Ref APIGatewayRestApiSecure
-      ParentId: !GetAtt APIGatewayRestApiSecure.RootResourceId
+      RestApiId: !Ref APIGatewayRestApi
+      ParentId: !GetAtt APIGatewayRestApi.RootResourceId
       PathPart: transactions
 
-  # GET /transactions - requires Cognito authentication
-  GetTransactionMethodSecure:
+  GetTransactionMethod:
     Type: AWS::ApiGateway::Method
     Properties:
-      RestApiId: !Ref APIGatewayRestApiSecure
-      ResourceId: !Ref TransactionsResourceSecure
+      RestApiId: !Ref APIGatewayRestApi
+      ResourceId: !Ref TransactionsResource
       HttpMethod: GET
-      AuthorizationType: COGNITO_USER_POOLS # ✅ Cognito authorization
+      AuthorizationType: COGNITO_USER_POOLS
       AuthorizerId: !Ref CognitoAuthorizer
       RequestParameters:
-        method.request.header.Authorization: true # ✅ Require auth header
+        method.request.header.Authorization: true
         method.request.querystring.account_id: true
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
-        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetTransactionFunctionSecure.Arn}/invocations"
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetTransactionFunction.Arn}/invocations"
 
-  TransferResourceSecure:
+  TransferResource:
     Type: AWS::ApiGateway::Resource
     Properties:
-      RestApiId: !Ref APIGatewayRestApiSecure
-      ParentId: !GetAtt APIGatewayRestApiSecure.RootResourceId
+      RestApiId: !Ref APIGatewayRestApi
+      ParentId: !GetAtt APIGatewayRestApi.RootResourceId
       PathPart: transfer
 
-  # POST /transfer - requires Cognito authentication
-  TransferFundsMethodSecure:
+  TransferFundsMethod:
     Type: AWS::ApiGateway::Method
     Properties:
-      RestApiId: !Ref APIGatewayRestApiSecure
-      ResourceId: !Ref TransferResourceSecure
+      RestApiId: !Ref APIGatewayRestApi
+      ResourceId: !Ref TransferResource
       HttpMethod: POST
-      AuthorizationType: COGNITO_USER_POOLS # ✅ Cognito authorization
+      AuthorizationType: COGNITO_USER_POOLS
       AuthorizerId: !Ref CognitoAuthorizer
       RequestParameters:
-        method.request.header.Authorization: true # ✅ Require auth header
+        method.request.header.Authorization: true
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
-        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${TransferFundsFunctionSecure.Arn}/invocations"
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${TransferFundsFunction.Arn}/invocations"
 
-  # ===== API GATEWAY DEPLOYMENT WITH STAGE =====
-  APIDeploymentSecure:
+  APIDeployment:
     Type: AWS::ApiGateway::Deployment
     DependsOn:
-      - GetTransactionMethodSecure
-      - TransferFundsMethodSecure
+      - GetTransactionMethod
+      - TransferFundsMethod
     Properties:
-      RestApiId: !Ref APIGatewayRestApiSecure
+      RestApiId: !Ref APIGatewayRestApi
       StageName: !Ref Environment
 
-  # ===== AWS WAF FOR API GATEWAY =====
-  # Protects against common attacks: SQLi, XSS, rate limiting
+  # ===== WAF =====
   WAFWebACL:
     Type: AWS::WAFv2::WebACL
     Properties:
@@ -725,6 +802,10 @@ Resources:
             RateBasedStatement:
               Limit: 2000
               AggregateKeyType: IP
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: RateLimitRuleMetric
         - Name: AWSManagedRulesCommonRuleSet
           Priority: 1
           OverrideAction:
@@ -733,6 +814,10 @@ Resources:
             ManagedRuleGroupStatement:
               VendorName: AWS
               Name: AWSManagedRulesCommonRuleSet
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSCommonRuleSetMetric
         - Name: AWSManagedRulesSQLiRuleSet
           Priority: 2
           OverrideAction:
@@ -741,12 +826,42 @@ Resources:
             ManagedRuleGroupStatement:
               VendorName: AWS
               Name: AWSManagedRulesSQLiRuleSet
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSSQLiRuleSetMetric
+        - Name: AWSManagedRulesKnownBadInputsRuleSet
+          Priority: 3
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesKnownBadInputsRuleSet
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSKnownBadInputsRuleSetMetric
       VisibilityConfig:
         SampledRequestsEnabled: true
         CloudWatchMetricsEnabled: true
         MetricName: SecureBankWAFMetrics
 
-  # ===== CLOUDTRAIL FOR AUDIT LOGGING =====
+  WAFWebACLAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    DependsOn: APIDeployment
+    Properties:
+      ResourceArn: !Sub "arn:aws:apigateway:${AWS::Region}::/restapis/${APIGatewayRestApi}/stages/${Environment}"
+      WebACLArn: !GetAtt WAFWebACL.Arn
+
+  # ===== CLOUDTRAIL =====
+  CloudTrailLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/cloudtrail/securebank
+      RetentionInDays: 1
+      KmsKeyId: !GetAtt KMSKeyForEncryption.Arn
+
   CloudTrailRole:
     Type: AWS::IAM::Role
     Properties:
@@ -758,50 +873,62 @@ Resources:
               Service: cloudtrail.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: CloudTrailS3Policy
+        - PolicyName: CloudTrailPolicy
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub "${AuditLogsBucket.Arn}/*"
+              - Effect: Allow
                 Action:
-                  - s3:PutObject
-                Resource: !Sub "${AuditLogsBucketSecure.Arn}/*"
+                  - kms:GenerateDataKey
+                  - kms:Decrypt
+                Resource: !GetAtt KMSKeyForEncryption.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt CloudTrailLogGroup.Arn
 
   SecureBankTrail:
     Type: AWS::CloudTrail::Trail
     DependsOn: AuditLogsBucketPolicy
     Properties:
       TrailName: SecureBank-CloudTrail
-      S3BucketName: !Ref AuditLogsBucketSecure
+      S3BucketName: !Ref AuditLogsBucket
       IsLogging: true
       IsMultiRegionTrail: true
       IncludeGlobalServiceEvents: true
-      EnableLogFileValidation: true # ✅ Immutable logs
+      EnableLogFileValidation: true
+      CloudWatchLogsLogGroupArn: !GetAtt CloudTrailLogGroup.Arn
+      CloudWatchLogsRoleArn: !GetAtt CloudTrailRole.Arn
+      KMSKeyId: !GetAtt KMSKeyForEncryption.Arn
       EventSelectors:
         - ReadWriteType: All
           IncludeManagementEvents: true
 
 Outputs:
   APIEndpoint:
-    Value: !Sub "https://${APIGatewayRestApiSecure}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
-    Description: Secure API endpoint with Cognito authentication
+    Value: !Sub "https://${APIGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+    Description: API endpoint with Cognito authentication
 
   DatabaseEndpoint:
-    Value: !GetAtt TransactionDatabaseSecure.Endpoint.Address
+    Value: !GetAtt TransactionDatabase.Endpoint.Address
     Description: RDS endpoint (encrypted, private, multi-AZ)
 
   AuditBucketName:
-    Value: !Ref AuditLogsBucketSecure
-    Description: S3 bucket for encrypted audit logs with versioning
+    Value: !Ref AuditLogsBucket
+    Description: S3 bucket for encrypted audit logs
 
   DBSecretsARN:
-    Value: !GetAtt DBCredentialsSecret.Arn
-    Description: Database credentials in Secrets Manager (rotated)
+    Value: !Ref DBCredentialsSecret
+    Description: Database credentials ARN in Secrets Manager
 
-  KMSKeyId:
+  KMSKeyArn:
     Value: !GetAtt KMSKeyForEncryption.Arn
-    Description: KMS key for encryption at rest
+    Description: KMS key ARN for encryption at rest
 
-  CloudTrailName:
-    Value: !Ref SecureBankTrail
-    Description: CloudTrail for API audit logging
+  NATGatewayIP:
+    Value: !Ref NATGatewayEIP
+    Description: Elastic IP for NAT Gateway

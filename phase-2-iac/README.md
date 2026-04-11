@@ -15,6 +15,48 @@ This phase demonstrates how security controls are applied during the Implement p
 
 ---
 
+## VPC Architecture (Secure Template)
+
+```
+SecureBank VPC (10.0.0.0/16)
+│
+├─ PublicSubnet (10.0.0.0/24)
+│  ├─ Internet Gateway (IGW)
+│  └─ NAT Gateway (Elastic IP: static outbound IP)
+│
+├─ PrivateSubnet1 (10.0.1.0/24)
+│  ├─ Lambda Functions (GET /transactions, POST /transfer)
+│  └─ RDS Multi-AZ (MySQL) — Encrypted, no internet access
+│
+└─ PrivateSubnet2 (10.0.2.0/24)
+   ├─ Lambda Functions (redundancy)
+   └─ RDS Replica (for Multi-AZ failover)
+
+Network Flow:
+┌─────────────────────────────────────────────────────────┐
+│ Client                                                  │
+│   ↓ (HTTPS)                                             │
+│ API Gateway + Cognito Authorizer + AWS WAF              │
+│   ↓ (VPC Endpoint)                                      │
+│ Lambda in PrivateSubnet1/2                              │
+│   ├→ RDS (10.0.1.0/24 SG only) — Internal only         │
+│   └→ AWS Services (via NAT Gateway)                     │
+│       ├─ Secrets Manager (retrieve DB password)         │
+│       ├─ KMS (decrypt/encrypt)                          │
+│       ├─ S3 (write audit logs)                          │
+│       └─ CloudWatch (send logs)                         │
+└─────────────────────────────────────────────────────────┘
+
+CIDR Planning:
+- VPC: 10.0.0.0/16 (65,536 IPs)
+  - Public:   10.0.0.0/24 (256 IPs) — NAT Gateway
+  - Private1: 10.0.1.0/24 (256 IPs) — RDS, Lambda (AZ1)
+  - Private2: 10.0.2.0/24 (256 IPs) — RDS, Lambda (AZ2)
+  - Reserved: 10.0.3.0/24 - 10.0.255.0/24 (future expansion)
+```
+
+---
+
 ## Vulnerabilities in Insecure Template
 
 The insecure template demonstrates real-world security mistakes aligned with STRIDE:
@@ -59,6 +101,35 @@ The insecure template demonstrates real-world security mistakes aligned with STR
 - No resource-level permissions
 - No API-level authorization checks
 
+### Insecure Template Network Architecture
+
+The insecure template includes basic NAT Gateway infrastructure to allow Lambda to reach AWS services, but with critical security gaps:
+
+```
+Insecure VPC (10.0.0.0/16)
+│
+├─ PublicSubnet (10.0.0.0/24)
+│  └─ NAT Gateway (✅ functional, but minimal security)
+│
+├─ PrivateSubnet1/2 (10.0.1-2.0/24)
+│  ├─ Lambda Functions
+│  └─ RDS MySQL
+│
+RDS Security Group:
+  ❌ OPEN TO INTERNET: 0.0.0.0/0:3306
+  ❌ PubliclyAccessible: true
+  ❌ StorageEncrypted: false
+  ❌ BackupRetentionPeriod: 0
+```
+
+**Network Vulnerabilities:**
+
+- Database security group accepts connections from 0.0.0.0/0 (entire internet)
+- RDS PubliclyAccessible enabled (reachable from anywhere)
+- No network ACLs restricting traffic
+- Lambda security group allows all outbound (no egress restrictions)
+- No encryption in transit (TLS not enforced)
+
 ---
 
 ## Security Controls in Secure Template
@@ -79,7 +150,7 @@ GetTransactionMethod:
 ### 2. **Encryption at Rest** ✅
 
 ```yaml
-# KMS encryption for RDS and S3
+# KMS encryption for RDS, S3, Lambda env vars, and CloudTrail
 TransactionDatabaseSecure:
   StorageEncrypted: true
   KmsKeyId: !GetAtt KMSKeyForEncryption.Arn
@@ -89,70 +160,151 @@ AuditLogsBucketSecure:
     ServerSideEncryptionConfiguration:
       - ServerSideEncryptionByDefault:
           SSEAlgorithm: aws:kms
+          KMSMasterKeyID: !GetAtt KMSKeyForEncryption.Arn
+
+SecureBankTrail:
+  KMSKeyId: !GetAtt KMSKeyForEncryption.Arn # CloudTrail logs encrypted at rest (CKV_AWS_35)
+
+# KMS Key with Automatic Annual Rotation (CKV_AWS_7)
+KMSKeyForEncryption:
+  Type: AWS::KMS::Key
+  Properties:
+    EnableKeyRotation: true # Automatic key rotation enabled
+```
+
+### 2a. **Secrets Manager Encryption (CKV_AWS_149)** ✅
+
+```yaml
+# Secrets Manager encrypted with customer-managed KMS key
+DBCredentialsSecret:
+  Type: AWS::SecretsManager::Secret
+  Properties:
+    KmsKeyId: !GetAtt KMSKeyForEncryption.Arn # KMS encrypted at rest
+    GenerateSecretString:
+      PasswordLength: 32 # Automatically rotated
 ```
 
 ### 3. **Encryption in Transit** ✅
 
 ```yaml
-# Secrets Manager instead of hardcoded passwords
-DBCredentialsSecret:
-  Type: AWS::SecretsManager::Secret
-  Properties:
-    GenerateSecretString:
-      PasswordLength: 32 # Rotating secrets
-
-# Lambda retrieves secrets at runtime
+# Lambda retrieves secrets securely at runtime (never hardcoded)
 def get_db_credentials():
   response = secrets_client.get_secret_value(SecretId=secret_arn)
   return json.loads(response['SecretString'])
 ```
 
+### 3a. **Lambda Environment Variable Encryption (CKV_AWS_173)** ✅
+
+```yaml
+# Lambda environment variables encrypted at rest with KMS
+GetTransactionFunctionSecure:
+  Type: AWS::Lambda::Function
+  Properties:
+    KmsKeyArn: !GetAtt KMSKeyForEncryption.Arn # Env vars encrypted
+    ReservedConcurrentExecutions: 100 # Concurrency limit (CKV_AWS_115)
+    DeadLetterConfig:
+      TargetArn: !GetAtt GetTransactionDLQQueue.Arn # DLQ (CKV_AWS_116)
+    Environment:
+      Variables:
+        DB_SECRET_ARN: !GetAtt DBCredentialsSecret.Arn
+        KMS_KEY_ID: !GetAtt KMSKeyForEncryption.Arn
+```
+
 ### 4. **Audit & Logging** ✅
 
 ```yaml
-# CloudTrail for immutable API audit
+# CloudTrail for immutable, encrypted API audit (CKV_AWS_35)
 SecureBankTrail:
   EnableLogFileValidation: true # Prevent tampering
+  KMSKeyId: !GetAtt KMSKeyForEncryption.Arn # CloudTrail logs encrypted
 
 # Application-level audit logs to encrypted S3
 def audit_log(event_type, user_id, account_id, status): log_entry = {...}
   s3_client.put_object(
   Bucket=AUDIT_BUCKET,
-  ServerSideEncryption='aws:kms'
+  ServerSideEncryption='aws:kms',
+  SSEKMSKeyId=KMS_KEY_ID
   )
 
-# Database logging
+# Database logging and enhanced monitoring (CKV_AWS_118)
 TransactionDatabaseSecure:
+  MonitoringInterval: 60 # Enhanced RDS monitoring every 60 seconds
+  MonitoringRoleArn: !GetAtt RDSMonitoringRole.Arn
   EnableCloudwatchLogsExports:
     - error
     - general
     - slowquery
 ```
 
-### 5. **Network Isolation** ✅
+### 5. **Network Isolation (Zero Trust)** ✅
 
 ```yaml
-# Private VPC subnets for RDS and Lambda
+# Three-tier network with controlled outbound access:
+#
+# PublicSubnet (10.0.0.0/24)
+#   ├─ Internet Gateway
+#   └─ NAT Gateway (Elastic IP)
+#       ↓
+# PrivateSubnet1 (10.0.1.0/24) — RDS + Lambda
+# PrivateSubnet2 (10.0.2.0/24) — RDS + Lambda
+#
+# RDS: Private only (no internet)
+# Lambda: Private with outbound via NAT (for AWS service access)
+
+NATGateway:
+  AllocationId: !GetAtt NATGatewayEIP.AllocationId
+  SubnetId: !Ref PublicSubnet # ✅ NAT lives in public subnet
+  # Lambda uses NAT for outbound calls:
+  #   → secretsmanager:GetSecretValue (retrieve DB password)
+  #   → kms:Decrypt, kms:GenerateDataKey (encryption)
+  #   → s3:PutObject (write audit logs)
+  #   → logs:PutLogEvents (CloudWatch logs)
+
+PrivateRouteTable:
+  Route:
+    DestinationCidrBlock: 0.0.0.0/0
+    NatGatewayId: !Ref NATGateway # ✅ All outbound → NAT
+
 DBSecurityGroup:
   SecurityGroupIngress:
-    - SourceSecurityGroupId: !Ref LambdaSecurityGroup # Only from Lambda
+    - SourceSecurityGroupId: !Ref LambdaSecurityGroup # ✅ Only from Lambda
 
 TransactionDatabaseSecure:
-  PubliclyAccessible: false
+  PubliclyAccessible: false # ✅ Completely private, no internet access
   VPCSecurityGroups:
     - !Ref DBSecurityGroup
 ```
 
-### 6. **DDoS Protection** ✅
+**Why NAT Gateway is Critical:**
+
+Without NAT Gateway, Lambda calls timeout ❌:
+
+```
+Lambda (10.0.1.0/24) → Secrets Manager API
+   ❌ No route to internet
+   ❌ Timeout error
+```
+
+With NAT Gateway, Lambda reaches AWS services ✅:
+
+```
+Lambda (10.0.1.0/24)
+   → NAT Gateway (10.0.0.0/24)
+   → Internet Gateway
+   → AWS Service APIs ✅
+```
+
+### 6. **DDoS & Vulnerability Protection** ✅
 
 ```yaml
-# AWS WAF with rate limiting and SQL injection protection
+# AWS WAF with rate limiting, SQL injection, and Log4j protection
 WAFWebACL:
   Rules:
     - RateLimitRule:
         Limit: 2000 req/min per IP
     - AWSManagedRulesSQLiRuleSet # Block SQL injection
-    - AWSManagedRulesCommonRuleSet
+    - AWSManagedRulesCommonRuleSet # OWASP Top 10
+    - AWSManagedRulesKnownBadInputsRuleSet # Log4j CVE-2021-44228 protection (CKV_AWS_192)
 ```
 
 ### 7. **Least Privilege IAM** ✅
@@ -306,6 +458,71 @@ except Exception as e:
         'statusCode': 500,
         'body': json.dumps({'error': 'An error occurred'})  # Generic message
     }
+```
+
+---
+
+## Troubleshooting Deployment Issues
+
+### Lambda Function can't reach Secrets Manager / KMS / S3
+
+**Symptom**: Lambda timeout or "Connection refused" errors in CloudWatch logs
+
+**Cause**: NAT Gateway not attached or route table not configured
+
+**Fix**:
+
+```bash
+# Verify NAT Gateway is in AVAILABLE state
+aws ec2 describe-nat-gateways --region ap-southeast-2 \
+  --query 'NatGateways[?Tags[?Key==`Name` && Value==`SecureBank-NAT`]].{ID:NatGatewayId,State:State,EIP:NatGatewayAddresses[0].PublicIp}'
+
+# Verify private subnet has route to NAT Gateway
+aws ec2 describe-route-tables --region ap-southeast-2 \
+  --query 'RouteTables[?Tags[?Key==`Name` && Value==`PrivateRouteTable`]].Routes' \
+  --output table
+
+# Expected output:
+# DestinationCidrBlock: 0.0.0.0/0 → NatGatewayId: nat-xxxxxxxxx
+```
+
+### Lambda can't reach RDS database
+
+**Symptom**: "Connection timeout" when Lambda tries to connect to RDS
+
+**Cause**: Security group rules are wrong, or Lambda not in same VPC
+
+**Fix**:
+
+```bash
+# Verify Lambda security group can reach RDS port 3306
+aws ec2 describe-security-groups --group-id sg-xxxxx --region ap-southeast-2 | \
+  jq '.SecurityGroups[0].SecurityGroupEgress[] | select(.FromPort==3306)'
+
+# Should show egress rule to RDS security group (not 0.0.0.0/0)
+
+# Verify RDS accepts traffic from Lambda security group
+aws ec2 describe-security-groups \
+  --group-id $(aws rds describe-db-instances --db-instance-identifier securebank-db-secure \
+    --region ap-southeast-2 --query 'DBInstances[0].VpcSecurityGroups[0].VpcSecurityGroupId' --output text) \
+  --region ap-southeast-2 | \
+  jq '.SecurityGroups[0].SecurityGroupIngress[] | select(.FromPort==3306)'
+
+# Should show ingress rule from Lambda security group
+```
+
+### S3 bucket name already exists
+
+**Symptom**: Stack creation fails with "BucketAlreadyExists"
+
+**Cause**: S3 bucket names are globally unique; try deploying with different account
+
+**Fix**:
+
+```bash
+# The template generates bucket name with account ID, should be unique
+# If still fails, delete the old bucket first:
+aws s3 rb s3://securebank-audit-logs-${ACCOUNT_ID}-secure --force --region ap-southeast-2
 ```
 
 ---

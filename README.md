@@ -1,7 +1,5 @@
 # COMP3446-demo
 
-I am making a demonstration on the topic of Cloud SDLC AWS. The format will be making a small project where I apply every phase of Cloud SDLC.
-
 # Scenario: Securing a Banking API Across the SDLC
 
 We're building a cloud-native REST API for SecureBank's transaction processing system. Follow each phase to see how security controls are applied — from threat modelling to production monitoring.
@@ -72,7 +70,8 @@ aws cloudformation create-stack \
   --stack-name securebank-insecure-dev \
   --template-body file://phase-2-iac/insecure-template.yaml \
   --parameters ParameterKey=Environment,ParameterValue=dev \
-  --region ap-southeast-2
+  --region ap-southeast-2 \
+  --capabilities CAPABILITY_IAM
 
 # Wait for stack creation
 aws cloudformation wait stack-create-complete \
@@ -181,27 +180,27 @@ aws cloudformation describe-stacks \
 ```bash
 # Check RDS encryption
 aws rds describe-db-instances \
-  --db-instance-identifier securebank-db-secure \
+  --db-instance-identifier securebank-db \
   --query 'DBInstances[0].StorageEncrypted' \
   --region ap-southeast-2
 # Output: true
 
 # Check RDS is private (not publicly accessible)
 aws rds describe-db-instances \
-  --db-instance-identifier securebank-db-secure \
+  --db-instance-identifier securebank-db \
   --query 'DBInstances[0].PubliclyAccessible' \
   --region ap-southeast-2
 # Output: false
 
 # Check S3 encryption
-aws s3api head-bucket \
-  --bucket securebank-audit-logs-$(aws sts get-caller-identity --query Account --output text)-secure \
-  --query 'ServerSideEncryption' \
+aws s3api get-bucket-encryption \
+  --bucket securebank-audit-logs-$(aws sts get-caller-identity --query Account --output text) \
+  --query 'ServerSideEncryptionConfiguration' \
   --region ap-southeast-2
 
 # Check S3 public access is blocked
 aws s3api get-public-access-block \
-  --bucket securebank-audit-logs-$(aws sts get-caller-identity --query Account --output text)-secure \
+  --bucket securebank-audit-logs-$(aws sts get-caller-identity --query Account --output text) \
   --region ap-southeast-2
 
 # Check CloudTrail is enabled
@@ -227,9 +226,19 @@ checkov -f phase-2-iac/secure-template.yaml --framework cloudformation
 | **Spoofing**               | No authentication        | API Gateway with `AuthorizationType: NONE` | Cognito User Pools with JWT validation                   |
 | **Tampering**              | No encryption in transit | Hardcoded DB password in env vars          | Secrets Manager with TLS 1.3                             |
 | **Repudiation**            | No audit trail           | S3 logging disabled, no CloudTrail         | CloudTrail + immutable S3 audit logs + encrypted storage |
-| **Info Disclosure**        | Sensitive data exposed   | Public RDS + verbose errors                | Private VPC + RDS + KMS encryption + generic errors      |
+| **Info Disclosure**        | Sensitive data exposed   | Public RDS (0.0.0.0/0) + verbose errors    | Private RDS + network isolation + generic errors         |
 | **DoS**                    | No rate limiting         | No WAF, unlimited API calls                | AWS WAF with rate limiting + DDoS protection             |
 | **Elevation of Privilege** | Overly permissive IAM    | Lambda has `AdministratorAccess`           | Least privilege + resource-scoped permissions            |
+
+**Network Security Comparison:**
+
+| Component           | Insecure                        | Secure                                |
+| ------------------- | ------------------------------- | ------------------------------------- |
+| **RDS Access**      | Public: 0.0.0.0/0:3306 (open)   | Private: Lambda SG only               |
+| **Lambda Subnets**  | Private (via NAT for outbound)  | Private (via NAT for outbound)        |
+| **Egress Control**  | All allowed (0.0.0.0/0)         | Restricted (Secrets Manager, KMS, S3) |
+| **Database Backup** | None (BackupRetentionPeriod: 0) | 30-day retention with encryption      |
+| **Encryption**      | None (StorageEncrypted: false)  | KMS AES-256 at rest + TLS in transit  |
 
 ---
 
@@ -294,14 +303,19 @@ reports:
     file-format: 'JUNITXML'
 EOF
 
+# Zip and Upload Source Code
+zip -r phase-2-iac.zip ./*
+
+aws s3 cp phase-2-iac.zip s3://securebank-source-$(aws sts get-caller-identity --query Account --output text)/phase-2-iac.zip
+
 # Create CodeBuild project
 aws codebuild create-project \
   --name SecureBank-SecurityTesting \
-  --source type=S3,location=securebank-source/phase-2-iac \
-  --artifacts type=S3,location=securebank-test-results \
+  --source type=S3,location=securebank-source-$(aws sts get-caller-identity --query Account --output text)/phase-2-iac.zip \
+  --artifacts type=S3,location=securebank-test-results-$(aws sts get-caller-identity --query Account --output text) \
   --environment type=LINUX_CONTAINER,image=aws/codebuild/standard:5.0,computeType=BUILD_GENERAL1_MEDIUM \
-  --service-role arn:aws:iam::ACCOUNT_ID:role/CodeBuildRole \
-  --logs-config cloudWatchLogs='{enabled=true,groupName=/aws/codebuild/securebank}' \
+  --service-role arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):role/CodeBuildRole \
+  --logs-config cloudWatchLogs='{status=ENABLED,groupName=/aws/codebuild/securebank}' \
   --region ap-southeast-2
 
 # Start build

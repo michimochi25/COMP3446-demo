@@ -13,9 +13,6 @@ checkov>=2.14.0
 semgrep>=1.35.0
 detect-secrets>=1.4.0
 
-# AWS-specific tools
-aws-cli>=1.27.0
-
 # JSON and utility
 python-dateutil>=2.8.0
 

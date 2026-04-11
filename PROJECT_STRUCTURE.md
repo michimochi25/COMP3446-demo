@@ -61,7 +61,9 @@ COMP3446-demo/
 #### Secure Version (Production-Ready)
 
 - Secrets Manager for credentials
-- Private VPC with security groups
+- Private VPC with security groups (public subnet for NAT Gateway, private subnets for RDS/Lambda)
+- Internet Gateway for public subnet egress
+- NAT Gateway for Lambda outbound access to AWS services (Secrets Manager, KMS, S3, CloudWatch)
 - Cognito User Pools authentication
 - KMS encryption for RDS & S3
 - Least privilege IAM role
@@ -165,23 +167,24 @@ POST /transfer
 
 ## Technology Stack
 
-| Component      | Technology            | Purpose                        |
-| -------------- | --------------------- | ------------------------------ |
-| **IaC**        | AWS CloudFormation    | Define infrastructure securely |
-| **Compute**    | AWS Lambda            | Serverless API endpoints       |
-| **Database**   | Amazon RDS MySQL      | Transactional database         |
-| **Storage**    | Amazon S3 + KMS       | Encrypted audit logs           |
-| **Auth**       | Amazon Cognito        | User authentication (JWT)      |
-| **Secrets**    | AWS Secrets Manager   | Credential management          |
-| **Encryption** | AWS KMS               | Encryption key management      |
-| **API**        | API Gateway + WAF     | REST API with DDoS protection  |
-| **Network**    | VPC + Security Groups | Network isolation              |
-| **Monitoring** | CloudWatch            | Metrics, logs, alarms          |
-| **Audit**      | CloudTrail            | Immutable API logs             |
-| **Compliance** | Security Hub + Config | Posture & compliance           |
-| **Testing**    | CodeBuild             | Automated security pipeline    |
-| **SAST**       | Checkov, Semgrep      | Static analysis                |
-| **DAST**       | OWASP ZAP             | Dynamic penetration testing    |
+| Component      | Technology            | Purpose                             |
+| -------------- | --------------------- | ----------------------------------- |
+| **IaC**        | AWS CloudFormation    | Define infrastructure securely      |
+| **Compute**    | AWS Lambda            | Serverless API endpoints            |
+| **Database**   | Amazon RDS MySQL      | Transactional database              |
+| **Storage**    | Amazon S3 + KMS       | Encrypted audit logs                |
+| **Auth**       | Amazon Cognito        | User authentication (JWT)           |
+| **Secrets**    | AWS Secrets Manager   | Credential management               |
+| **Encryption** | AWS KMS               | Encryption key management           |
+| **API**        | API Gateway + WAF     | REST API with DDoS protection       |
+| **Network**    | VPC + NAT Gateway     | Network isolation + outbound access |
+| **Routing**    | IGW + Route Tables    | Public/private subnet routing       |
+| **Monitoring** | CloudWatch            | Metrics, logs, alarms               |
+| **Audit**      | CloudTrail            | Immutable API logs                  |
+| **Compliance** | Security Hub + Config | Posture & compliance                |
+| **Testing**    | CodeBuild             | Automated security pipeline         |
+| **SAST**       | Checkov, Semgrep      | Static analysis                     |
+| **DAST**       | OWASP ZAP             | Dynamic penetration testing         |
 
 ---
 
@@ -196,11 +199,13 @@ POST /transfer
 
 ### For Understanding Solutions
 
-1. `phase-2-iac/secure-template.yaml` (Lines 1-100) — VPC & network isolation
-2. `phase-2-iac/secure-template.yaml` (Lines 100-200) — KMS encryption & Secrets Manager
-3. `phase-2-iac/secure-template.yaml` (Lines 200-400) — Secure Lambda with input validation
-4. `phase-2-iac/secure-template.yaml` (Lines 400-500) — API Gateway + Cognito authorizer
-5. `phase-2-iac/secure-template.yaml` (Lines 500+) — CloudTrail + WAF
+1. `phase-2-iac/secure-template.yaml` (Lines 1-50) — VPC & Internet Gateway
+2. `phase-2-iac/secure-template.yaml` (Lines 50-150) — Public subnet, NAT Gateway, Route Tables
+3. `phase-2-iac/secure-template.yaml` (Lines 150-200) — Private subnets for RDS & Lambda
+4. `phase-2-iac/secure-template.yaml` (Lines 200-350) — KMS encryption & Secrets Manager
+5. `phase-2-iac/secure-template.yaml` (Lines 350-550) — Secure Lambda with input validation
+6. `phase-2-iac/secure-template.yaml` (Lines 550-700) — API Gateway + Cognito authorizer
+7. `phase-2-iac/secure-template.yaml` (Lines 700+) — CloudTrail + WAF
 
 ### For Code Security Patterns
 

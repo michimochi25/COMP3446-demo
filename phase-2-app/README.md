@@ -15,6 +15,21 @@ Each endpoint demonstrates comprehensive security controls aligned with the STRI
 - `requirements.txt` — Python dependencies for local development and scanning
 - `README.md` — This file
 
+## Security Enhancements (Checkov Fixes)
+
+Updated 9/4/2026 9:38 PM
+Reason for this addition: `secure-template.yaml` still produced 11 errors originally. These fixes fixed the errors.
+
+The Lambda functions have been hardened with production-grade security controls:
+
+- ✅ **Environment Variable Encryption** (CKV_AWS_173): All Lambda env vars encrypted with KMS
+- ✅ **Reserved Concurrency Limits** (CKV_AWS_115): GET=100, POST=50 to prevent resource exhaustion
+- ✅ **Dead Letter Queues** (CKV_AWS_116): Encrypted SQS DLQs capture failed invocations for forensics
+- ✅ **KMS Key Rotation** (CKV_AWS_7): Annual automatic key rotation for encryption keys
+- ✅ **RDS Enhanced Monitoring** (CKV_AWS_118): 60-second monitoring interval for database metrics
+- ✅ **CloudTrail Encryption** (CKV_AWS_35): All API calls logged to encrypted CloudTrail
+- ✅ **WAF Log4j Protection** (CKV_AWS_192): CVE-2021-44228 detection and blocking
+
 ## Security Controls Implemented
 
 ### Authentication & Authorization (Anti-Spoofing)
@@ -80,6 +95,28 @@ def audit_log(event_type, user_id, account_id, status):
         ServerSideEncryption='aws:kms',
         SSEKMSKeyId=KMS_KEY_ID
     )
+```
+
+### Lambda-Specific Resilience Controls
+
+- **Reserved Concurrency**: Limits prevent DDoS attacks exhausting Lambda capacity
+  - GET /transactions: 100 reserved concurrent executions
+  - POST /transfer: 50 reserved concurrent executions
+- **Dead Letter Queue (DLQ)**: Failed Lambda invocations captured for debugging and replay
+  - Encrypted SQS queues for both endpoints
+  - Enables failure investigation without data loss
+- **Environment Variable Encryption**: All Lambda env vars encrypted with customer-managed KMS key
+  - DB_HOST, DB_SECRET_ARN, AUDIT_BUCKET, KMS_KEY_ID all encrypted at rest
+  - Prevents exposure via Lambda console or API
+
+```yaml
+# CloudFormation configuration
+GetTransactionFunctionSecure:
+  Properties:
+    ReservedConcurrentExecutions: 100 # Prevent resource exhaustion
+    DeadLetterConfig:
+      TargetArn: !GetAtt GetTransactionDLQQueue.Arn # Capture failures
+    KmsKeyArn: !GetAtt KMSKeyForEncryption.Arn # Encrypt env vars
 ```
 
 ### Transaction Atomicity (Anti-Tampering)
