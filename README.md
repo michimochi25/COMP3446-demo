@@ -294,8 +294,7 @@ artifacts:
 EOF
 
 # Zip and Upload Source Code (buildspec.yml must be at ROOT level)
-cd /Users/gedeagussudarmawan/UNSW_COMP/COMP3446/demo/COMP3446-demo
-rm -f phase-2-iac.zip
+# Must be at COMP3446-demo
 zip -r phase-2-iac.zip buildspec.yml phase-2-iac/ phase-2-app/
 
 aws s3 cp phase-2-iac.zip s3://securebank-source-$(aws sts get-caller-identity --query Account --output text)/phase-2-iac.zip --region ap-southeast-2
