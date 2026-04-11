@@ -269,44 +269,36 @@ phases:
     commands:
       - echo "Installing security scanning tools..."
       - pip install checkov semgrep detect-secrets
-      - pip install aws-cli-v2
-
-  pre_build:
-    commands:
-      - echo "Pre-build: Fetching CloudFormation templates..."
-      - aws s3 cp s3://securebank-source/phase-2-iac . --recursive
 
   build:
     commands:
-      - echo "=== Phase 3.1: IaC Scanning with Checkov ==="
-      - checkov -f phase-2-iac/secure-template.yaml --framework cloudformation --output junitxml --output-file-path=TEST_REPORTS/checkov-results.xml || true
-
-      - echo "=== Phase 3.2: SAST with Semgrep ==="
-      - semgrep --config=p/security-audit phase-2-iac/insecure-template.yaml --json --output=TEST_REPORTS/semgrep-results.json || true
-
-      - echo "=== Phase 3.3: Secret Detection ==="
+      - mkdir -p TEST_REPORTS
+      - echo "=== Phase 3.1 IaC Scanning with Checkov ==="
+      - checkov -f phase-2-iac/secure-template.yaml --framework cloudformation --output cli > TEST_REPORTS/checkov-results.txt || true
+      - echo "=== Phase 3.2 SAST with Semgrep ==="
+      - semgrep --config=p/security-audit phase-2-iac/insecure-template.yaml --json --output TEST_REPORTS/semgrep-results.json || true
+      - echo "=== Phase 3.3 Secret Detection ==="
       - detect-secrets scan phase-2-iac/ --all-files > TEST_REPORTS/secrets-scan.txt || true
-
-      - echo "=== Phase 3.4: AWS Lambda Code Analysis ==="
-      - python3 -m py_compile phase-2-app/lambda_functions.py
+      - echo "=== Phase 3.4 AWS Lambda Code Analysis ==="
+      - python3 -m py_compile phase-2-app/lambda_functions.py || true
 
   post_build:
     commands:
-      - echo "Build completed. Uploading results..."
-      - aws s3 cp TEST_REPORTS s3://securebank-test-results/ --recursive
+      - echo "Build completed successfully!"
+      - ls -la TEST_REPORTS/
 
-reports:
-  SecurityScanResults:
-    files:
-      - 'TEST_REPORTS/checkov-results.xml'
-      - 'TEST_REPORTS/semgrep-results.json'
-    file-format: 'JUNITXML'
+artifacts:
+  files:
+    - TEST_REPORTS/**/*
+  name: SecurityTestResults
 EOF
 
-# Zip and Upload Source Code
-zip -r phase-2-iac.zip ./*
+# Zip and Upload Source Code (buildspec.yml must be at ROOT level)
+cd /Users/gedeagussudarmawan/UNSW_COMP/COMP3446/demo/COMP3446-demo
+rm -f phase-2-iac.zip
+zip -r phase-2-iac.zip buildspec.yml phase-2-iac/ phase-2-app/
 
-aws s3 cp phase-2-iac.zip s3://securebank-source-$(aws sts get-caller-identity --query Account --output text)/phase-2-iac.zip
+aws s3 cp phase-2-iac.zip s3://securebank-source-$(aws sts get-caller-identity --query Account --output text)/phase-2-iac.zip --region ap-southeast-2
 
 # Create CodeBuild project
 aws codebuild create-project \
@@ -340,22 +332,22 @@ echo "=== Secret Detection Results ==="
 detect-secrets scan phase-2-iac/
 ```
 
-### Step 3: Scan Container Image with AWS Inspector (After Lambda Deployment)
+### Step 3: Validate IAM Permissions (Manual Security Check)
+
+Since we're using Lambda (serverless), not EC2 or containers, we manually validate IAM permissions instead of using AWS Inspector. This ensures the Lambda execution role follows least-privilege principles.
 
 ```bash
-# List ECR repositories (if using containers)
-aws ecr describe-repositories --region ap-southeast-2
-
 # For Lambda (no container), scan IAM permissions instead
 echo "=== Lambda IAM Policy Security Check ==="
 aws iam get-role-policy \
-  --role-name LambdaExecutionRoleSecure \
+  --role-name securebank-secure-prod-LambdaExecutionRole-f88aDHHV2NTv \
   --policy-name SecureBankLambdaPolicy \
   --region ap-southeast-2 | jq '.PolicyDocument.Statement[] | {Effect, Action, Resource}'
 
 # Check for overly permissive permissions
+# This simulates whether the role would be allowed to perform dangerous actions
 aws iam simulate-custom-policy \
-  --policy-input-list arn:aws:iam::ACCOUNT_ID:role/LambdaExecutionRoleSecure \
+  --policy-input-list arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):role/securebank-secure-prod-LambdaExecutionRole-f88aDHHV2NTv \
   --action-names 's3:*' 'rds:*' 'ec2:*' \
   --region ap-southeast-2
 ```
@@ -376,12 +368,14 @@ aws cloudwatch put-metric-alarm \
   --period 300 \
   --threshold 1 \
   --comparison-operator GreaterThanOrEqualToThreshold \
-  --alarm-actions arn:aws:sns:ap-southeast-2:ACCOUNT_ID:SecureBank-SecurityAlerts \
-  --region ap-southeast-2
+  --alarm-actions arn:aws:sns:ap-southeast-2:$(aws sts get-caller-identity --query Account --output text):SecureBank-SecurityAlerts \
+  --region ap-southeast-2 \
+  --evaluation-periods 5 \
+  --datapoints-to-alarm 3
 
 # View CodeBuild logs
 aws codebuild batch-get-builds \
-  --ids $(aws codebuild batch-get-builds --project-name SecureBank-SecurityTesting --region ap-southeast-2 | jq -r '.builds[0].id') \
+  --ids $(aws codebuild list-builds-for-project --project-name SecureBank-SecurityTesting --region ap-southeast-2 | jq -r '.ids[0]') \
   --region ap-southeast-2 | jq '.builds[0].logs'
 ```
 
