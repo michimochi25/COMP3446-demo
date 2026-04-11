@@ -70,7 +70,7 @@ aws cloudformation create-stack \
   --stack-name securebank-insecure-dev \
   --template-body file://phase-2-iac/insecure-template.yaml \
   --parameters ParameterKey=Environment,ParameterValue=dev \
-  --region ap-southeast-2
+  --region ap-southeast-2 \
   --capabilities CAPABILITY_IAM
 
 # Wait for stack creation
@@ -195,7 +195,7 @@ aws rds describe-db-instances \
 # Check S3 encryption
 aws s3api get-bucket-encryption \
   --bucket securebank-audit-logs-$(aws sts get-caller-identity --query Account --output text) \
-  --query 'ServerSideEncryption' \
+  --query 'ServerSideEncryptionConfiguration' \
   --region ap-southeast-2
 
 # Check S3 public access is blocked
@@ -303,14 +303,19 @@ reports:
     file-format: 'JUNITXML'
 EOF
 
+# Zip and Upload Source Code
+zip -r phase-2-iac.zip ./*
+
+aws s3 cp phase-2-iac.zip s3://securebank-source-$(aws sts get-caller-identity --query Account --output text)/phase-2-iac.zip
+
 # Create CodeBuild project
 aws codebuild create-project \
   --name SecureBank-SecurityTesting \
-  --source type=S3,location=securebank-source/phase-2-iac \
-  --artifacts type=S3,location=securebank-test-results \
+  --source type=S3,location=securebank-source-$(aws sts get-caller-identity --query Account --output text)/phase-2-iac.zip \
+  --artifacts type=S3,location=securebank-test-results-$(aws sts get-caller-identity --query Account --output text) \
   --environment type=LINUX_CONTAINER,image=aws/codebuild/standard:5.0,computeType=BUILD_GENERAL1_MEDIUM \
-  --service-role arn:aws:iam::ACCOUNT_ID:role/CodeBuildRole \
-  --logs-config cloudWatchLogs='{enabled=true,groupName=/aws/codebuild/securebank}' \
+  --service-role arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):role/CodeBuildRole \
+  --logs-config cloudWatchLogs='{status=ENABLED,groupName=/aws/codebuild/securebank}' \
   --region ap-southeast-2
 
 # Start build
