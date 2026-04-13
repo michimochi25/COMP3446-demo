@@ -721,7 +721,7 @@ aws cloudwatch put-metric-alarm \
   --threshold 10 \
   --comparison-operator GreaterThanThreshold \
   --evaluation-periods 1 \
-  --alarm-actions arn:aws:sns:ap-southeast-2:ACCOUNT_ID:SecureBank-SecurityAlerts \
+  --alarm-actions arn:aws:sns:ap-southeast-2:$(aws sts get-caller-identity --query Account --output text):SecureBank-SecurityAlerts \
   --region ap-southeast-2
 
 # Alarm: Lambda execution errors
@@ -733,8 +733,10 @@ aws cloudwatch put-metric-alarm \
   --statistic Sum \
   --period 300 \
   --threshold 5 \
+  --evaluation-periods 5 \
+  --datapoints-to-alarm 3 \
   --comparison-operator GreaterThanThreshold \
-  --alarm-actions arn:aws:sns:ap-southeast-2:ACCOUNT_ID:SecureBank-SecurityAlerts \
+  --alarm-actions arn:aws:sns:ap-southeast-2:$(aws sts get-caller-identity --query Account --output text):SecureBank-SecurityAlerts \
   --region ap-southeast-2
 
 # Alarm: Unauthorized API calls
@@ -746,8 +748,10 @@ aws cloudwatch put-metric-alarm \
   --statistic Sum \
   --period 300 \
   --threshold 5 \
+  --evaluation-periods 5 \
+  --datapoints-to-alarm 3 \
   --comparison-operator GreaterThanOrEqualToThreshold \
-  --alarm-actions arn:aws:sns:ap-southeast-2:ACCOUNT_ID:SecureBank-SecurityAlerts \
+  --alarm-actions arn:aws:sns:ap-southeast-2:$(aws sts get-caller-identity --query Account --output text):SecureBank-SecurityAlerts \
   --region ap-southeast-2
 ```
 
@@ -770,7 +774,7 @@ aws events put-rule \
 # Send to SNS for real-time alerting
 aws events put-targets \
   --rule SecureBank-SuspiciousActivity \
-  --targets "Id"="1","Arn"="arn:aws:sns:ap-southeast-2:ACCOUNT_ID:SecureBank-SecurityAlerts" \
+  --targets "Id"="1","Arn"="arn:aws:sns:ap-southeast-2:$(aws sts get-caller-identity --query Account --output text):SecureBank-SecurityAlerts" \
   --region ap-southeast-2
 
 # Query CloudTrail for recent events
@@ -876,7 +880,7 @@ aws lambda create-function \
   --runtime python3.11 \
   --handler remediation.lambda_handler \
   --zip-file fileb://remediation.zip \
-  --role arn:aws:iam::ACCOUNT_ID:role/LambdaExecutionRole \
+  --role "arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):role/LambdaExecutionRole" \
   --region ap-southeast-2
 
 # Create AWS Config Remediation Config Rule
