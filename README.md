@@ -455,7 +455,7 @@ env:
 contexts:
   - name: SecureBank
     urls:
-      - https://API_ENDPOINT/prod
+      - https://mn27u1arj1.execute-api.ap-southeast-2.amazonaws.com/staging
 tests:
   - testType: passiveScan
   - testType: activeScan
@@ -468,9 +468,9 @@ EOF
 
 # Run ZAP scan in Docker
 docker run -v $(pwd):/zap/wrk:rw \
-  -t owasp/zap2docker-stable \
+  -t zaproxy/zap-stable \
   zap-api-scan.py \
-  -t https://API_ENDPOINT/prod \
+  -t https://mn27u1arj1.execute-api.ap-southeast-2.amazonaws.com/staging \
   -f openapi \
   -r zap-report.html
 
@@ -484,95 +484,113 @@ docker run -v $(pwd):/zap/wrk:rw \
 ls -lh zap-report.html
 ```
 
-### Step 3: Enable AWS Security Hub for Cloud Posture Management
+### Step 3: Set Up Prowler for Cloud Security Posture Management (CSPM)
 
 ```bash
-# Enable Security Hub
-aws securityhub enable-security-hub --region ap-southeast-2
+# Install Prowler
+pip install prowler
 
-# Enable compliance standards
-aws securityhub batch-enable-standards \
-  --standards-subscription-requests \
-    StandardsArn=arn:aws:securityhub:ap-southeast-2::standards/aws-foundational-security-best-practices/v/1.0.0 \
-  --region ap-southeast-2
+# Verify installation
+prowler --version
 
-# Run AWS Config for continuous compliance
-aws configservice start-config-rules-evaluation \
-  --config-rules-names \
-    cloudtrail-enabled \
-    rds-encryption-enabled \
-    s3-bucket-public-read-prohibited \
-    s3-bucket-public-write-prohibited \
-  --region ap-southeast-2
+# Configure AWS credentials (if not already set)
+export AWS_REGION=ap-southeast-2
+export AWS_PROFILE=default
+
+# Configure access and secret key first
+aws configure
+
+# Run Prowler scan against SecureBank resources
+prowler aws --region ap-southeast-2 \
+  --services rds s3 apigateway cloudtrail iam \
+  --resource-tags aws:cloudformation:stack-name=securebank-sandbox \
+  -o prowler-reports
+
+# Expected findings: Secure template should show PASSED status for all critical checks
 ```
 
-### Step 4: Get Security Hub Findings
+### Step 4: Review Prowler Assessment Results
 
 ```bash
-# List all findings
-aws securityhub get-findings \
-  --region ap-southeast-2 | jq '.Findings[] | {Title, Severity, Status}'
+# View Prowler scan results in JSON format
+jq '.[] | {Check: .metadata.event_code, Resource: .resources[0].name, Status: .status_code}' prowler-reports/*.json
 
-# Filter by resource (SecureBank stack)
-aws securityhub get-findings \
-  --filters '{"ResourceId":[{"Value":"arn:aws:cloudformation:*:*:stack/securebank-*","Comparison":"PREFIX"}]}' \
-  --region ap-southeast-2
+# Generate summary statistics
+jq 'group_by(.status_code) | map({result: .[0].status_code, count: length})' prowler-reports/*.json
 
-# Check Security Posture Score
-aws securityhub describe-organization-configuration \
-  --region ap-southeast-2 | jq '.OverallScore'
+# View HTML report for visual inspection
+open prowler-reports/*.html  # or use your browser
 
-# Expected: Secure template should have high compliance score
+# Check specific compliance frameworks
+prowler aws --region ap-southeast-2 \
+  --compliance cis_2.0_aws \
+  --output-formats json-ocsf csv \
+  -o prowler-reports/cis
+
+# Filter results by severity
+cat prowler-reports/cis/*.json | \
+  jq '.[] | select(.severity == "Critical") | {Check: .metadata.event_code, Resource: .resources[0].name, Severity: .severity, StatusCode: .status_code}'
 ```
 
-### Step 5: Validate Before Production Promotion
+# Expected: Secure template should show 0 CRITICAL findings, most checks PASSED
+
+````
+
+### Step 5: Validate Before Production Promotion with Prowler
 
 ```bash
-# Checklist for production readiness
-echo "=== Production Readiness Checklist ==="
+# Production readiness validation using Prowler
+echo "=== Production Readiness Checklist with Prowler ==="
 
-# 1. No critical vulnerabilities
-CRITICAL_COUNT=$(aws securityhub get-findings \
-  --filters '{"SeverityLabel":[{"Value":"CRITICAL","Comparison":"EQUALS"}]}' \
-  --region ap-southeast-2 | jq '.Findings | length')
+# 1. Run comprehensive Prowler scan
+prowler aws --region ap-southeast-2 -o prowler-prod-check
+
+# 2. Check for critical findings
+CRITICAL_COUNT=$(cat ~/prowler-prod-check/prowler-output.json | \
+  jq '[.[] | select(.Severity == "critical")] | length')
 
 if [ $CRITICAL_COUNT -eq 0 ]; then
-  echo "✅ 0 critical vulnerabilities"
+  echo "✅ 0 critical findings"
 else
-  echo "❌ $CRITICAL_COUNT critical vulnerabilities found"
+  echo "❌ $CRITICAL_COUNT critical findings found"
   exit 1
 fi
 
-# 2. Encryption enabled
-RDS_ENCRYPTED=$(aws rds describe-db-instances \
-  --db-instance-identifier securebank-db-secure \
-  --query 'DBInstances[0].StorageEncrypted' \
-  --region ap-southeast-2)
+# 3. Validate specific security checks
+echo "\n=== Checking Security Controls ==="
 
-echo "✅ RDS encrypted: $RDS_ENCRYPTED"
+# Check RDS encryption
+RDS_ENCRYPTION=$(cat ~/prowler-prod-check/prowler-output.json | \
+  jq '.[] | select(.Check_ID == "rds_encrypt") | .Result')
+echo "✅ RDS Encryption: $RDS_ENCRYPTION"
 
-# 3. Authentication enabled
-API_AUTH=$(aws apigateway get-method \
-  --rest-api-id API_ID \
-  --resource-id RESOURCE_ID \
-  --http-method GET \
-  --query 'AuthorizationType' \
-  --region ap-southeast-2)
+# Check API Gateway Authorization
+API_AUTH=$(cat ~/prowler-prod-check/prowler-output.json | \
+  jq '.[] | select(.Check_ID == "apigateway_authorization") | .Result')
+echo "✅ API Gateway Authorization: $API_AUTH"
 
-if [ "$API_AUTH" == "COGNITO_USER_POOLS" ]; then
-  echo "✅ API Gateway has Cognito authentication"
-fi
+# Check CloudTrail logging
+CT_LOGGING=$(cat ~/prowler-prod-check/prowler-output.json | \
+  jq '.[] | select(.Check_ID == "cloudtrail_enabled") | .Result')
+echo "✅ CloudTrail Logging: $CT_LOGGING"
 
-# 4. Logging enabled
-CLOUDTRAIL_ENABLED=$(aws cloudtrail describe-trails \
-  --trail-name-list SecureBank-CloudTrail \
-  --query 'trailList[0].IsLogging' \
-  --region ap-southeast-2)
+# Check S3 public access blocks
+S3_BLOCK=$(cat ~/prowler-prod-check/prowler-output.json | \
+  jq '.[] | select(.Check_ID == "s3_block_public") | .Result')
+echo "✅ S3 Public Access Blocked: $S3_BLOCK"
 
-echo "✅ CloudTrail logging: $CLOUDTRAIL_ENABLED"
+# 4. Generate compliance summary
+echo "\n=== Compliance Summary ==="
+cat ~/prowler-prod-check/prowler-output.json | \
+  jq -r '.[] | "\(.Check_ID): \(.Result)"' | sort | uniq -c
 
-echo "=== Ready for promotion to production ==="
-```
+# 5. Export results for stakeholders
+echo "\n=== Exporting Results ==="
+cp ~/prowler-prod-check/prowler-output.html ./prowler-prod-report.html
+echo "✅ Report exported to prowler-prod-report.html"
+
+echo "\n=== Ready for promotion to production ==="
+````
 
 ---
 
@@ -733,59 +751,55 @@ aws cloudtrail lookup-events \
 # Example output: Any DeleteDBInstance events would trigger immediate alert
 ```
 
-### Step 4: Set Up AWS Config for Continuous Compliance
+### Step 4: Set Up Prowler for Continuous Compliance Monitoring
 
 ```bash
-# Create Config recorder
-aws configservice put-config-recorder \
-  --config-recorder-name SecureBankRecorder \
-  --role-arn arn:aws:iam::ACCOUNT_ID:role/ConfigRole \
-  --recording-group allSupported=true \
-  --region ap-southeast-2
+# Install Prowler dependencies
+pip install prowler-cloud sqlalchemy flask
 
-# Start recorder
-aws configservice start-config-recorder \
-  --config-recorder-name SecureBankRecorder \
-  --region ap-southeast-2
+# Create Prowler baseline configuration
+cat > prowler-config.yaml << 'EOF'
+regions: ["ap-southeast-2"]
+output_formats: ["json", "csv", "html"]
+strategic_frameworks: ["cis_level2", "pci_dss"]
+critical_checks_only: false
+EOF
 
-# Add Config rules
-aws configservice put-config-rule \
-  --config-rule '{
-    "ConfigRuleName": "rds-encryption-enabled",
-    "Description": "Check RDS encryption",
-    "Source": {
-      "Owner": "AWS",
-      "SourceIdentifier": "RDS_STORAGE_ENCRYPTED"
-    }
-  }' \
-  --region ap-southeast-2
+# Run scheduled Prowler scans (via cron or AWS Lambda)
+# Schedule daily scans
+(crontab -l 2>/dev/null; echo "0 2 * * * cd /home/giselle/COMP3446/COMP3446-demo && prowler aws --region ap-southeast-2 -o ~/prowler-reports/daily-\$(date +%Y%m%d)") | crontab -
 
-aws configservice put-config-rule \
-  --config-rule '{
-    "ConfigRuleName": "s3-public-read-prohibited",
-    "Description": "Check S3 public read access",
-    "Source": {
-      "Owner": "AWS",
-      "SourceIdentifier": "S3_BUCKET_PUBLIC_READ_PROHIBITED"
-    }
-  }' \
-  --region ap-southeast-2
+# Monitor specific compliance frameworks
+echo "=== Running CIS Level 2 Benchmark ==="
+prowler aws --region ap-southeast-2 --checks cis_level2 -o ~/prowler-reports/cis-benchmark
 
-aws configservice put-config-rule \
-  --config-rule '{
-    "ConfigRuleName": "iam-policy-no-statements-with-admin-access",
-    "Description": "Check for admin IAM policies",
-    "Source": {
-      "Owner": "AWS",
-      "SourceIdentifier": "IAM_POLICY_NO_STATEMENTS_WITH_ADMIN_ACCESS"
-    }
-  }' \
-  --region ap-southeast-2
+# Monitor PCI-DSS controls for banking
+echo "=== Checking PCI-DSS Compliance ==="
+prowler aws --region ap-southeast-2 --checks pci_dss -o ~/prowler-reports/pci-dss
 
-# Get compliance status
-aws configservice describe-compliance-by-resource \
-  --resource-type AWS::RDS::DBInstance \
-  --region ap-southeast-2
+# Generate trend analysis
+echo "=== Compliance Trend Analysis ==="
+python3 << 'PYTHON'
+import json
+import os
+from pathlib import Path
+from collections import defaultdict
+
+report_dir = Path(os.path.expanduser('~/prowler-reports'))
+results = defaultdict(lambda: {'PASSED': 0, 'FAILED': 0})
+
+for report_file in report_dir.glob('*/prowler-output.json'):
+    with open(report_file) as f:
+        data = json.load(f)
+        for check in data:
+            results[check['Check_ID']][check['Result']] += 1
+
+print("\n=== Compliance Trend ===")
+for check_id, counts in sorted(results.items()):
+    total = counts['PASSED'] + counts['FAILED']
+    pass_rate = (counts['PASSED'] / total * 100) if total > 0 else 0
+    print(f"{check_id}: {counts['PASSED']}/{total} PASSED ({pass_rate:.1f}%)")
+PYTHON
 ```
 
 ### Step 5: Create Incident Response Automation
