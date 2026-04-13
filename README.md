@@ -532,11 +532,15 @@ cat prowler-reports/cis/*.json | \
   jq '.[] | select(.severity == "Critical") | {Check: .metadata.event_code, Resource: .resources[0].name, Severity: .severity, StatusCode: .status_code}'
 ```
 
+```
 # Expected: Secure template should show 0 CRITICAL findings, most checks PASSED
+```
 
 ### Step 5: Validate Before Production Promotion with Prowler
 
 1. Make an automated script
+
+```
    cat > validate-script.sh << 'EOF'
    #!/bin/bash
 
@@ -607,6 +611,7 @@ fi
 
 echo -e "\n=== Ready for promotion to production ==="
 EOF
+```
 
 2. Change the file permission `chmod +x validate-script.sh
 3. Run the script `./validate-script.sh`
@@ -640,49 +645,61 @@ aws cloudwatch put-metric-data \
 # Create dashboard
 cat > dashboard.json << 'EOF'
 {
-  "DashboardName": "SecureBank-Security",
-  "DashboardBody": {
-    "widgets": [
-      {
-        "type": "metric",
-        "properties": {
-          "metrics": [[
-            "AWS/ApiGateway",
-            "Count",
-            {"stat": "Sum", "label": "Total Requests"}
-          ]],
-          "period": 300,
-          "stat": "Sum",
-          "region": "ap-southeast-2",
-          "title": "API Requests"
-        }
-      },
-      {
-        "type": "metric",
-        "properties": {
-          "metrics": [[
-            "AWS/Lambda",
-            "Duration",
-            {"stat": "Average"}
-          ]],
-          "period": 60,
-          "stat": "Average",
-          "region": "ap-southeast-2",
-          "title": "Lambda Execution Time"
-        }
-      },
-      {
-        "type": "log",
-        "properties": {
-          "query": "fields @timestamp, status | stats count() by status",
-          "region": "ap-southeast-2",
-          "title": "API Status Distribution"
-        }
+  "widgets": [
+    {
+      "type": "metric",
+      "properties": {
+        "metrics": [[
+          "AWS/ApiGateway",
+          "Count",
+          {"stat": "Sum", "label": "Total Requests"}
+        ]],
+        "period": 300,
+        "stat": "Sum",
+        "region": "ap-southeast-2",
+        "title": "API Requests"
       }
-    ]
-  }
+    },
+    {
+      "type": "metric",
+      "properties": {
+        "metrics": [[
+          "AWS/Lambda",
+          "Duration",
+          {"stat": "Average"}
+        ]],
+        "period": 60,
+        "stat": "Average",
+        "region": "ap-southeast-2",
+        "title": "Lambda Execution Time"
+      }
+    },
+    {
+      "type": "log",
+      "properties": {
+        "query": "fields @timestamp, status | stats count() by status",
+        "region": "ap-southeast-2",
+        "title": "API Status Distribution"
+      }
+    }
+  ]
 }
 EOF
+
+# Ping the lambda functions to create log
+aws lambda invoke \
+  --function-name get-transaction-secure \
+  --region ap-southeast-2 \
+  --payload '{}' \
+  --cli-binary-format raw-in-base64-out \
+  response.json
+
+  aws lambda invoke \
+  --function-name transfer-funds-secure \
+  --region ap-southeast-2 \
+  --payload '{}' \
+  --cli-binary-format raw-in-base64-out \
+  response.json
 
 aws cloudwatch put-dashboard \
   --dashboard-name SecureBank-Security \
