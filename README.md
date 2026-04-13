@@ -157,9 +157,8 @@ semgrep --config=p/security-audit phase-2-iac/insecure-template.yaml
 # Deploy secure template
 aws cloudformation create-stack \
   --stack-name securebank-secure-prod \
-  --template-body file://phase-2-iac/secure-template.yaml \
+  --template-body file://phase-2-iac/secure-template-cognito.yaml \
   --parameters ParameterKey=Environment,ParameterValue=prod \
-              ParameterKey=CognitoUserPoolId,ParameterValue=ap-southeast-2_XXXXXXXXX \
   --capabilities CAPABILITY_NAMED_IAM \
   --region ap-southeast-2
 
@@ -274,13 +273,13 @@ phases:
     commands:
       - mkdir -p TEST_REPORTS
       - echo "=== Phase 3.1 IaC Scanning with Checkov ==="
-      - checkov -f phase-2-iac/secure-template.yaml --framework cloudformation --output cli > TEST_REPORTS/checkov-results.txt || true
+      - checkov -f phase-2-iac/secure-template.yaml --framework cloudformation --output cli > TEST_REPORTS/checkov-results.txt
       - echo "=== Phase 3.2 SAST with Semgrep ==="
-      - semgrep --config=p/security-audit phase-2-iac/insecure-template.yaml --json --output TEST_REPORTS/semgrep-results.json || true
+      - semgrep --config=p/security-audit phase-2-iac/insecure-template.yaml --json --output TEST_REPORTS/semgrep-results.json
       - echo "=== Phase 3.3 Secret Detection ==="
-      - detect-secrets scan phase-2-iac/ --all-files > TEST_REPORTS/secrets-scan.txt || true
+      - detect-secrets scan phase-2-iac/ --all-files > TEST_REPORTS/secrets-scan.txt
       - echo "=== Phase 3.4 AWS Lambda Code Analysis ==="
-      - python3 -m py_compile phase-2-app/lambda_functions.py || true
+      - python3 -m py_compile phase-2-app/lambda_functions.py
 
   post_build:
     commands:
@@ -297,16 +296,16 @@ EOF
 # Must be at COMP3446-demo
 zip -r phase-2-iac.zip buildspec.yml phase-2-iac/ phase-2-app/
 
-aws s3 cp phase-2-iac.zip s3://securebank-source-$(aws sts get-caller-identity --query Account --output text)/phase-2-iac.zip --region ap-southeast-2
+aws s3 cp phase-2-iac.zip s3://securebank-source-prod-$(aws sts get-caller-identity --query Account --output text)/phase-2-iac.zip --region ap-southeast-2
 
 # Create CodeBuild project
 aws codebuild create-project \
   --name SecureBank-SecurityTesting \
-  --source type=S3,location=securebank-source-$(aws sts get-caller-identity --query Account --output text)/phase-2-iac.zip \
-  --artifacts type=S3,location=securebank-test-results-$(aws sts get-caller-identity --query Account --output text) \
-  --environment type=LINUX_CONTAINER,image=aws/codebuild/standard:5.0,computeType=BUILD_GENERAL1_MEDIUM \
-  --service-role arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):role/CodeBuildRole \
-  --logs-config cloudWatchLogs='{status=ENABLED,groupName=/aws/codebuild/securebank}' \
+  --source type=S3,location=securebank-source-prod-$(aws sts get-caller-identity --query Account --output text)/phase-2-iac.zip \
+  --artifacts type=S3,location=securebank-test-results-prod-$(aws sts get-caller-identity --query Account --output text) \
+  --environment type=LINUX_CONTAINER,image=aws/codebuild/standard:5.0,computeType=BUILD_GENERAL1_SMALL \
+  --service-role arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):role/CodeBuildRole-prod \
+  --logs-config cloudWatchLogs='{status=ENABLED,groupName=/aws/codebuild/securebank-prod}' \
   --region ap-southeast-2
 
 # Start build
@@ -339,14 +338,14 @@ Since we're using Lambda (serverless), not EC2 or containers, we manually valida
 # For Lambda (no container), scan IAM permissions instead
 echo "=== Lambda IAM Policy Security Check ==="
 aws iam get-role-policy \
-  --role-name securebank-secure-prod-LambdaExecutionRole-f88aDHHV2NTv \
+  --role-name securebank-secure-prod-LambdaExecutionRole-LJovjxcaMlLU \
   --policy-name SecureBankLambdaPolicy \
   --region ap-southeast-2 | jq '.PolicyDocument.Statement[] | {Effect, Action, Resource}'
 
 # Check for overly permissive permissions
 # This simulates whether the role would be allowed to perform dangerous actions
-aws iam simulate-custom-policy \
-  --policy-input-list arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):role/securebank-secure-prod-LambdaExecutionRole-f88aDHHV2NTv \
+aws iam simulate-principal-policy \
+  --policy-source-arn arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):role/securebank-secure-prod-LambdaExecutionRole-LJovjxcaMlLU \
   --action-names 's3:*' 'rds:*' 'ec2:*' \
   --region ap-southeast-2
 ```
@@ -358,6 +357,14 @@ aws iam simulate-custom-policy \
 aws sns create-topic --name SecureBank-SecurityAlerts --region ap-southeast-2
 
 # Create CloudWatch alarm for failed security checks
+# AWS CloudWatch Alarm: Security Build Failures
+# ---------------------------------------------------------
+# --metric-name / --namespace : Tracks the FailedBuilds metric in CodeBuild
+# --period / --statistic      : Sums up failures in 5-minute (300s) windows
+# --threshold / --comparison  : Triggers if we hit 1 or more failures
+# --evaluation / --datapoints : Requires 3 failing periods out of 5 to alarm (prevent false alarm)
+# --alarm-actions             : Sends alert to the SecureBank SNS Topic
+# ---------------------------------------------------------
 aws cloudwatch put-metric-alarm \
   --alarm-name CodeBuild-SecurityFailures \
   --alarm-description "Alert on security test failures" \
@@ -409,7 +416,7 @@ Deploy to isolated sandbox environment. DAST (OWASP ZAP) performs dynamic securi
 # Deploy secure template to sandbox
 aws cloudformation create-stack \
   --stack-name securebank-sandbox \
-  --template-body file://phase-2-iac/secure-template.yaml \
+  --template-body file://phase-2-iac/secure-template-new.yaml \
   --parameters ParameterKey=Environment,ParameterValue=staging \
               ParameterKey=CognitoUserPoolId,ParameterValue=ap-southeast-2_XXX \
   --capabilities CAPABILITY_NAMED_IAM \
