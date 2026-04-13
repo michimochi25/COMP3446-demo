@@ -53,7 +53,7 @@ Resources:
   KMSKeyAlias:
     Type: AWS::KMS::Alias
     Properties:
-      AliasName: alias/securebank-prod
+      AliasName: !Sub alias/securebank-${Environment}
       TargetKeyId: !Ref KMSKeyForEncryption
 
   # ===== VPC =====
