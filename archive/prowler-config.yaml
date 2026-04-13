@@ -1,0 +1,4 @@
+regions: ["ap-southeast-2"]
+output_formats: ["json", "csv", "html"]
+strategic_frameworks: ["cis_level2", "pci_dss"]
+critical_checks_only: false

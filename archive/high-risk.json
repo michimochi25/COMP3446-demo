@@ -1,0 +1,260 @@
+{
+    "Events": [
+        {
+            "EventId": "b738c557-9b6e-4175-981f-1f1cce048d5f",
+            "EventName": "DeleteDBInstance",
+            "ReadOnly": "false",
+            "AccessKeyId": "ASIAVKS4L5UN2YCFRERC",
+            "EventTime": "2026-04-12T12:48:16+10:00",
+            "EventSource": "rds.amazonaws.com",
+            "Username": "root",
+            "Resources": [
+                {
+                    "ResourceType": "AWS::RDS::DBInstance",
+                    "ResourceName": "securebank-db"
+                },
+                {
+                    "ResourceType": "AWS::EC2::VPC",
+                    "ResourceName": "vpc-0a426959c59e9cf1f"
+                },
+                {
+                    "ResourceType": "AWS::RDS::DBSnapshot",
+                    "ResourceName": "securebank-secure-prod-snapshot-transactiondatabase-riqamr6ngdzo"
+                },
+                {
+                    "ResourceType": "AWS::RDS::DBSubnetGroup",
+                    "ResourceName": "securebank-secure-prod-dbsubnetgroup-7e3qw8ifgvfr"
+                },
+                {
+                    "ResourceType": "AWS::EC2::SecurityGroup",
+                    "ResourceName": "sg-09ba1a649415cfbec"
+                },
+                {
+                    "ResourceType": "AWS::RDS::DBOptionGroup",
+                    "ResourceName": "default:mysql-8-0"
+                },
+                {
+                    "ResourceType": "AWS::EC2::Subnet",
+                    "ResourceName": "subnet-09af6f6474a01176f"
+                },
+                {
+                    "ResourceType": "AWS::EC2::Subnet",
+                    "ResourceName": "subnet-0f6c4c3b6359df583"
+                },
+                {
+                    "ResourceType": "AWS::KMS::Key",
+                    "ResourceName": "arn:aws:kms:ap-southeast-2:366339681563:key/127118ac-2ebf-4efb-90c1-135ebed3ac9d"
+                },
+                {
+                    "ResourceType": "AWS::RDS::DBParameterGroup",
+                    "ResourceName": "default.mysql8.0"
+                }
+            ],
+            "CloudTrailEvent": "{\"eventVersion\":\"1.11\",\"userIdentity\":{\"type\":\"Root\",\"principalId\":\"366339681563\",\"arn\":\"arn:aws:iam::366339681563:root\",\"accountId\":\"366339681563\",\"accessKeyId\":\"ASIAVKS4L5UN2YCFRERC\",\"sessionContext\":{\"attributes\":{\"creationDate\":\"2026-04-12T02:23:13Z\",\"mfaAuthenticated\":\"false\"}},\"invokedBy\":\"cloudformation.amazonaws.com\"},\"eventTime\":\"2026-04-12T02:48:16Z\",\"eventSource\":\"rds.amazonaws.com\",\"eventName\":\"DeleteDBInstance\",\"awsRegion\":\"ap-southeast-2\",\"sourceIPAddress\":\"cloudformation.amazonaws.com\",\"userAgent\":\"cloudformation.amazonaws.com\",\"requestParameters\":{\"dBInstanceIdentifier\":\"securebank-db\",\"skipFinalSnapshot\":false,\"finalDBSnapshotIdentifier\":\"securebank-secure-prod-snapshot-transactiondatabase-riqamr6ngdzo\"},\"responseElements\":{\"dBInstanceIdentifier\":\"securebank-db\",\"dBInstanceClass\":\"db.t3.micro\",\"engine\":\"mysql\",\"dBInstanceStatus\":\"deleting\",\"masterUsername\":\"admin\",\"endpoint\":{\"address\":\"securebank-db.cxoq62ykcqsc.ap-southeast-2.rds.amazonaws.com\",\"port\":3306,\"hostedZoneId\":\"Z32T0VRHXEXS0V\"},\"allocatedStorage\":20,\"instanceCreateTime\":\"Apr 11, 2026, 9:21:44 AM\",\"preferredBackupWindow\":\"15:06-15:36\",\"backupRetentionPeriod\":0,\"dBSecurityGroups\":[],\"vpcSecurityGroups\":[{\"vpcSecurityGroupId\":\"sg-09ba1a649415cfbec\",\"status\":\"active\"}],\"dBParameterGroups\":[{\"dBParameterGroupName\":\"default.mysql8.0\",\"parameterApplyStatus\":\"in-sync\"}],\"availabilityZone\":\"ap-southeast-2b\",\"dBSubnetGroup\":{\"dBSubnetGroupName\":\"securebank-secure-prod-dbsubnetgroup-7e3qw8ifgvfr\",\"dBSubnetGroupDescription\":\"Subnet group for RDS\",\"vpcId\":\"vpc-0a426959c59e9cf1f\",\"subnetGroupStatus\":\"Complete\",\"subnets\":[{\"subnetIdentifier\":\"subnet-0f6c4c3b6359df583\",\"subnetAvailabilityZone\":{\"name\":\"ap-southeast-2a\"},\"subnetOutpost\":{},\"subnetStatus\":\"Active\"},{\"subnetIdentifier\":\"subnet-09af6f6474a01176f\",\"subnetAvailabilityZone\":{\"name\":\"ap-southeast-2b\"},\"subnetOutpost\":{},\"subnetStatus\":\"Active\"}]},\"preferredMaintenanceWindow\":\"wed:16:11-wed:16:41\",\"upgradeRolloutOrder\":\"second\",\"pendingModifiedValues\":{},\"multiAZ\":false,\"engineVersion\":\"8.0.45\",\"autoMinorVersionUpgrade\":true,\"readReplicaDBInstanceIdentifiers\":[],\"licenseModel\":\"general-public-license\",\"iops\":3000,\"storageThroughput\":125,\"optionGroupMemberships\":[{\"optionGroupName\":\"default:mysql-8-0\",\"status\":\"in-sync\"}],\"publiclyAccessible\":false,\"storageType\":\"gp3\",\"dbInstancePort\":0,\"storageEncrypted\":true,\"kmsKeyId\":\"arn:aws:kms:ap-southeast-2:366339681563:key/127118ac-2ebf-4efb-90c1-135ebed3ac9d\",\"dbiResourceId\":\"db-IC2NESFNU6NG2KQBCNRMM6DLLU\",\"cACertificateIdentifier\":\"\",\"domainMemberships\":[],\"copyTagsToSnapshot\":false,\"monitoringInterval\":0,\"dBInstanceArn\":\"arn:aws:rds:ap-southeast-2:366339681563:db:securebank-db\",\"iAMDatabaseAuthenticationEnabled\":true,\"databaseInsightsMode\":\"standard\",\"performanceInsightsEnabled\":false,\"deletionProtection\":false,\"associatedRoles\":[],\"httpEndpointEnabled\":false,\"tagList\":[{\"key\":\"aws:cloudformation:stack-id\",\"value\":\"arn:aws:cloudformation:ap-southeast-2:366339681563:stack/securebank-secure-prod/4e012130-3587-11f1-acd5-025e70ce66f5\"},{\"key\":\"aws:cloudformation:stack-name\",\"value\":\"securebank-secure-prod\"},{\"key\":\"aws:cloudformation:logical-id\",\"value\":\"TransactionDatabase\"}],\"customerOwnedIpEnabled\":false,\"networkType\":\"IPV4\",\"backupTarget\":\"region\",\"dedicatedLogVolume\":false,\"engineLifecycleSupport\":\"open-source-rds-extended-support\",\"vPCNetworkingEnabled\":true},\"requestID\":\"cd1868c9-656c-49a5-b75b-fe689a1140ae\",\"eventID\":\"b738c557-9b6e-4175-981f-1f1cce048d5f\",\"readOnly\":false,\"eventType\":\"AwsApiCall\",\"managementEvent\":true,\"recipientAccountId\":\"366339681563\",\"eventCategory\":\"Management\",\"sessionCredentialFromConsole\":\"true\"}"
+        },
+        {
+            "EventId": "459f2df6-71c2-47d3-912d-3a8310c69ea9",
+            "EventName": "DeleteDBInstance",
+            "ReadOnly": "false",
+            "AccessKeyId": "ASIAVKS4L5UNQV6ALQBR",
+            "EventTime": "2026-04-12T12:45:55+10:00",
+            "EventSource": "rds.amazonaws.com",
+            "Username": "root",
+            "Resources": [
+                {
+                    "ResourceType": "AWS::RDS::DBInstance",
+                    "ResourceName": "securebank-db-staging"
+                },
+                {
+                    "ResourceType": "AWS::EC2::VPC",
+                    "ResourceName": "vpc-0852a76eebca47e48"
+                },
+                {
+                    "ResourceType": "AWS::RDS::DBSnapshot",
+                    "ResourceName": "securebank-sandbox-snapshot-transactiondatabase-hvubimpexsdr"
+                },
+                {
+                    "ResourceType": "AWS::RDS::DBSubnetGroup",
+                    "ResourceName": "securebank-sandbox-dbsubnetgroup-kucszmcdfbwt"
+                },
+                {
+                    "ResourceType": "AWS::EC2::SecurityGroup",
+                    "ResourceName": "sg-0adeba0d90942a676"
+                },
+                {
+                    "ResourceType": "AWS::RDS::DBOptionGroup",
+                    "ResourceName": "default:mysql-8-0"
+                },
+                {
+                    "ResourceType": "AWS::EC2::Subnet",
+                    "ResourceName": "subnet-047c577dfd775c82e"
+                },
+                {
+                    "ResourceType": "AWS::EC2::Subnet",
+                    "ResourceName": "subnet-00dba5be7bbd40e3e"
+                },
+                {
+                    "ResourceType": "AWS::KMS::Key",
+                    "ResourceName": "arn:aws:kms:ap-southeast-2:366339681563:key/f5ad073d-2249-44a4-9a97-8361d3c2afb1"
+                },
+                {
+                    "ResourceType": "AWS::RDS::DBParameterGroup",
+                    "ResourceName": "default.mysql8.0"
+                }
+            ],
+            "CloudTrailEvent": "{\"eventVersion\":\"1.11\",\"userIdentity\":{\"type\":\"Root\",\"principalId\":\"366339681563\",\"arn\":\"arn:aws:iam::366339681563:root\",\"accountId\":\"366339681563\",\"accessKeyId\":\"ASIAVKS4L5UNQV6ALQBR\",\"sessionContext\":{\"attributes\":{\"creationDate\":\"2026-04-12T02:23:13Z\",\"mfaAuthenticated\":\"false\"}},\"invokedBy\":\"cloudformation.amazonaws.com\"},\"eventTime\":\"2026-04-12T02:45:55Z\",\"eventSource\":\"rds.amazonaws.com\",\"eventName\":\"DeleteDBInstance\",\"awsRegion\":\"ap-southeast-2\",\"sourceIPAddress\":\"cloudformation.amazonaws.com\",\"userAgent\":\"cloudformation.amazonaws.com\",\"requestParameters\":{\"dBInstanceIdentifier\":\"securebank-db-staging\",\"skipFinalSnapshot\":false,\"finalDBSnapshotIdentifier\":\"securebank-sandbox-snapshot-transactiondatabase-hvubimpexsdr\"},\"responseElements\":{\"dBInstanceIdentifier\":\"securebank-db-staging\",\"dBInstanceClass\":\"db.t3.micro\",\"engine\":\"mysql\",\"dBInstanceStatus\":\"deleting\",\"masterUsername\":\"admin\",\"endpoint\":{\"address\":\"securebank-db-staging.cxoq62ykcqsc.ap-southeast-2.rds.amazonaws.com\",\"port\":3306,\"hostedZoneId\":\"Z32T0VRHXEXS0V\"},\"allocatedStorage\":20,\"instanceCreateTime\":\"Apr 11, 2026, 11:08:38 AM\",\"preferredBackupWindow\":\"13:08-13:38\",\"backupRetentionPeriod\":0,\"dBSecurityGroups\":[],\"vpcSecurityGroups\":[{\"vpcSecurityGroupId\":\"sg-0adeba0d90942a676\",\"status\":\"active\"}],\"dBParameterGroups\":[{\"dBParameterGroupName\":\"default.mysql8.0\",\"parameterApplyStatus\":\"in-sync\"}],\"availabilityZone\":\"ap-southeast-2b\",\"dBSubnetGroup\":{\"dBSubnetGroupName\":\"securebank-sandbox-dbsubnetgroup-kucszmcdfbwt\",\"dBSubnetGroupDescription\":\"Subnet group for RDS\",\"vpcId\":\"vpc-0852a76eebca47e48\",\"subnetGroupStatus\":\"Complete\",\"subnets\":[{\"subnetIdentifier\":\"subnet-047c577dfd775c82e\",\"subnetAvailabilityZone\":{\"name\":\"ap-southeast-2b\"},\"subnetOutpost\":{},\"subnetStatus\":\"Active\"},{\"subnetIdentifier\":\"subnet-00dba5be7bbd40e3e\",\"subnetAvailabilityZone\":{\"name\":\"ap-southeast-2a\"},\"subnetOutpost\":{},\"subnetStatus\":\"Active\"}]},\"preferredMaintenanceWindow\":\"tue:18:36-tue:19:06\",\"upgradeRolloutOrder\":\"second\",\"pendingModifiedValues\":{},\"multiAZ\":false,\"engineVersion\":\"8.0.45\",\"autoMinorVersionUpgrade\":true,\"readReplicaDBInstanceIdentifiers\":[],\"licenseModel\":\"general-public-license\",\"iops\":3000,\"storageThroughput\":125,\"optionGroupMemberships\":[{\"optionGroupName\":\"default:mysql-8-0\",\"status\":\"in-sync\"}],\"publiclyAccessible\":false,\"storageType\":\"gp3\",\"dbInstancePort\":0,\"storageEncrypted\":true,\"kmsKeyId\":\"arn:aws:kms:ap-southeast-2:366339681563:key/f5ad073d-2249-44a4-9a97-8361d3c2afb1\",\"dbiResourceId\":\"db-APTDMFKMOE3K3EXJIVG2BKON5E\",\"cACertificateIdentifier\":\"\",\"domainMemberships\":[],\"copyTagsToSnapshot\":false,\"monitoringInterval\":0,\"dBInstanceArn\":\"arn:aws:rds:ap-southeast-2:366339681563:db:securebank-db-staging\",\"iAMDatabaseAuthenticationEnabled\":true,\"databaseInsightsMode\":\"standard\",\"performanceInsightsEnabled\":false,\"deletionProtection\":false,\"associatedRoles\":[],\"httpEndpointEnabled\":false,\"tagList\":[{\"key\":\"aws:cloudformation:stack-id\",\"value\":\"arn:aws:cloudformation:ap-southeast-2:366339681563:stack/securebank-sandbox/37bd5ec0-3596-11f1-ad18-0a8289e76043\"},{\"key\":\"aws:cloudformation:stack-name\",\"value\":\"securebank-sandbox\"},{\"key\":\"aws:cloudformation:logical-id\",\"value\":\"TransactionDatabase\"}],\"customerOwnedIpEnabled\":false,\"networkType\":\"IPV4\",\"backupTarget\":\"region\",\"dedicatedLogVolume\":false,\"engineLifecycleSupport\":\"open-source-rds-extended-support\",\"vPCNetworkingEnabled\":true},\"requestID\":\"65b15215-4d3d-4c5f-8010-15c9fabeb6e8\",\"eventID\":\"459f2df6-71c2-47d3-912d-3a8310c69ea9\",\"readOnly\":false,\"eventType\":\"AwsApiCall\",\"managementEvent\":true,\"recipientAccountId\":\"366339681563\",\"eventCategory\":\"Management\",\"sessionCredentialFromConsole\":\"true\"}"
+        },
+        {
+            "EventId": "74d0d0c1-6c07-4aad-b550-491fc665324e",
+            "EventName": "DeleteDBInstance",
+            "ReadOnly": "false",
+            "AccessKeyId": "ASIAVKS4L5UNR4GCNW5B",
+            "EventTime": "2026-04-11T19:12:17+10:00",
+            "EventSource": "rds.amazonaws.com",
+            "Username": "root",
+            "Resources": [
+                {
+                    "ResourceType": "AWS::RDS::DBInstance",
+                    "ResourceName": "securebank-db"
+                },
+                {
+                    "ResourceType": "AWS::EC2::VPC",
+                    "ResourceName": "vpc-056944bf8354c0c55"
+                },
+                {
+                    "ResourceType": "AWS::RDS::DBSnapshot",
+                    "ResourceName": "securebank-secure-prod-snapshot-transactiondatabase-iusgztz1idw6"
+                },
+                {
+                    "ResourceType": "AWS::RDS::DBSubnetGroup",
+                    "ResourceName": "securebank-secure-prod-dbsubnetgroup-ugju369as1yl"
+                },
+                {
+                    "ResourceType": "AWS::EC2::SecurityGroup",
+                    "ResourceName": "sg-03e819961006f9a2e"
+                },
+                {
+                    "ResourceType": "AWS::RDS::DBOptionGroup",
+                    "ResourceName": "default:mysql-8-0"
+                },
+                {
+                    "ResourceType": "AWS::EC2::Subnet",
+                    "ResourceName": "subnet-063ddf4335d4e9048"
+                },
+                {
+                    "ResourceType": "AWS::EC2::Subnet",
+                    "ResourceName": "subnet-0f59872f8c8eb5b8a"
+                },
+                {
+                    "ResourceType": "AWS::KMS::Key",
+                    "ResourceName": "arn:aws:kms:ap-southeast-2:366339681563:key/629683aa-69e7-4f22-a952-38e635e762b8"
+                },
+                {
+                    "ResourceType": "AWS::RDS::DBParameterGroup",
+                    "ResourceName": "default.mysql8.0"
+                }
+            ],
+            "CloudTrailEvent": "{\"eventVersion\":\"1.11\",\"userIdentity\":{\"type\":\"Root\",\"principalId\":\"366339681563\",\"arn\":\"arn:aws:iam::366339681563:root\",\"accountId\":\"366339681563\",\"accessKeyId\":\"ASIAVKS4L5UNR4GCNW5B\",\"sessionContext\":{\"attributes\":{\"creationDate\":\"2026-04-11T08:58:26Z\",\"mfaAuthenticated\":\"false\"}},\"invokedBy\":\"cloudformation.amazonaws.com\"},\"eventTime\":\"2026-04-11T09:12:17Z\",\"eventSource\":\"rds.amazonaws.com\",\"eventName\":\"DeleteDBInstance\",\"awsRegion\":\"ap-southeast-2\",\"sourceIPAddress\":\"cloudformation.amazonaws.com\",\"userAgent\":\"cloudformation.amazonaws.com\",\"requestParameters\":{\"dBInstanceIdentifier\":\"securebank-db\",\"skipFinalSnapshot\":false,\"finalDBSnapshotIdentifier\":\"securebank-secure-prod-snapshot-transactiondatabase-iusgztz1idw6\"},\"responseElements\":{\"dBInstanceIdentifier\":\"securebank-db\",\"dBInstanceClass\":\"db.t3.micro\",\"engine\":\"mysql\",\"dBInstanceStatus\":\"deleting\",\"masterUsername\":\"admin\",\"endpoint\":{\"address\":\"securebank-db.cxoq62ykcqsc.ap-southeast-2.rds.amazonaws.com\",\"port\":3306,\"hostedZoneId\":\"Z32T0VRHXEXS0V\"},\"allocatedStorage\":20,\"instanceCreateTime\":\"Apr 11, 2026, 9:11:04 AM\",\"preferredBackupWindow\":\"15:00-15:30\",\"backupRetentionPeriod\":0,\"dBSecurityGroups\":[],\"vpcSecurityGroups\":[{\"vpcSecurityGroupId\":\"sg-03e819961006f9a2e\",\"status\":\"active\"}],\"dBParameterGroups\":[{\"dBParameterGroupName\":\"default.mysql8.0\",\"parameterApplyStatus\":\"in-sync\"}],\"availabilityZone\":\"ap-southeast-2b\",\"dBSubnetGroup\":{\"dBSubnetGroupName\":\"securebank-secure-prod-dbsubnetgroup-ugju369as1yl\",\"dBSubnetGroupDescription\":\"Subnet group for RDS\",\"vpcId\":\"vpc-056944bf8354c0c55\",\"subnetGroupStatus\":\"Complete\",\"subnets\":[{\"subnetIdentifier\":\"subnet-063ddf4335d4e9048\",\"subnetAvailabilityZone\":{\"name\":\"ap-southeast-2a\"},\"subnetOutpost\":{},\"subnetStatus\":\"Active\"},{\"subnetIdentifier\":\"subnet-0f59872f8c8eb5b8a\",\"subnetAvailabilityZone\":{\"name\":\"ap-southeast-2b\"},\"subnetOutpost\":{},\"subnetStatus\":\"Active\"}]},\"preferredMaintenanceWindow\":\"thu:18:32-thu:19:02\",\"upgradeRolloutOrder\":\"second\",\"pendingModifiedValues\":{},\"multiAZ\":false,\"engineVersion\":\"8.0.45\",\"autoMinorVersionUpgrade\":true,\"readReplicaDBInstanceIdentifiers\":[],\"licenseModel\":\"general-public-license\",\"iops\":3000,\"storageThroughput\":125,\"optionGroupMemberships\":[{\"optionGroupName\":\"default:mysql-8-0\",\"status\":\"in-sync\"}],\"publiclyAccessible\":false,\"storageType\":\"gp3\",\"dbInstancePort\":0,\"storageEncrypted\":true,\"kmsKeyId\":\"arn:aws:kms:ap-southeast-2:366339681563:key/629683aa-69e7-4f22-a952-38e635e762b8\",\"dbiResourceId\":\"db-Y2LMZOURQWOED57M3AGIZB6I3Y\",\"cACertificateIdentifier\":\"\",\"domainMemberships\":[],\"copyTagsToSnapshot\":false,\"monitoringInterval\":0,\"dBInstanceArn\":\"arn:aws:rds:ap-southeast-2:366339681563:db:securebank-db\",\"iAMDatabaseAuthenticationEnabled\":false,\"databaseInsightsMode\":\"standard\",\"performanceInsightsEnabled\":false,\"deletionProtection\":false,\"associatedRoles\":[],\"httpEndpointEnabled\":false,\"tagList\":[{\"key\":\"aws:cloudformation:stack-id\",\"value\":\"arn:aws:cloudformation:ap-southeast-2:366339681563:stack/securebank-secure-prod/cb4d0160-3585-11f1-a6e1-02ecaca835d7\"},{\"key\":\"aws:cloudformation:stack-name\",\"value\":\"securebank-secure-prod\"},{\"key\":\"aws:cloudformation:logical-id\",\"value\":\"TransactionDatabase\"}],\"customerOwnedIpEnabled\":false,\"networkType\":\"IPV4\",\"backupTarget\":\"region\",\"dedicatedLogVolume\":false,\"engineLifecycleSupport\":\"open-source-rds-extended-support\",\"vPCNetworkingEnabled\":true},\"requestID\":\"ddca12fe-12b0-4af3-8863-7c01ea6bd5dc\",\"eventID\":\"74d0d0c1-6c07-4aad-b550-491fc665324e\",\"readOnly\":false,\"eventType\":\"AwsApiCall\",\"managementEvent\":true,\"recipientAccountId\":\"366339681563\",\"eventCategory\":\"Management\",\"sessionCredentialFromConsole\":\"true\"}"
+        },
+        {
+            "EventId": "0d3081cf-51bb-4912-a7d0-4dca4e741068",
+            "EventName": "DeleteDBInstance",
+            "ReadOnly": "false",
+            "AccessKeyId": "ASIAVKS4L5UNXBOLJY4L",
+            "EventTime": "2026-04-11T19:11:12+10:00",
+            "EventSource": "rds.amazonaws.com",
+            "Username": "root",
+            "Resources": [
+                {
+                    "ResourceType": "AWS::RDS::DBInstance",
+                    "ResourceName": "securebank-db"
+                },
+                {
+                    "ResourceType": "AWS::RDS::DBSnapshot",
+                    "ResourceName": "securebank-secure-prod-snapshot-transactiondatabase-iusgztz1idw6"
+                }
+            ],
+            "CloudTrailEvent": "{\"eventVersion\":\"1.11\",\"userIdentity\":{\"type\":\"Root\",\"principalId\":\"366339681563\",\"arn\":\"arn:aws:iam::366339681563:root\",\"accountId\":\"366339681563\",\"accessKeyId\":\"ASIAVKS4L5UNXBOLJY4L\",\"sessionContext\":{\"attributes\":{\"creationDate\":\"2026-04-11T08:58:26Z\",\"mfaAuthenticated\":\"false\"}},\"invokedBy\":\"cloudformation.amazonaws.com\"},\"eventTime\":\"2026-04-11T09:11:12Z\",\"eventSource\":\"rds.amazonaws.com\",\"eventName\":\"DeleteDBInstance\",\"awsRegion\":\"ap-southeast-2\",\"sourceIPAddress\":\"cloudformation.amazonaws.com\",\"userAgent\":\"cloudformation.amazonaws.com\",\"errorCode\":\"InvalidDBInstanceStateFault\",\"errorMessage\":\"Cannot create a snapshot because the database instance securebank-db is not currently in the available state.\",\"requestParameters\":{\"dBInstanceIdentifier\":\"securebank-db\",\"skipFinalSnapshot\":false,\"finalDBSnapshotIdentifier\":\"securebank-secure-prod-snapshot-transactiondatabase-iusgztz1idw6\"},\"responseElements\":null,\"requestID\":\"e02a29c0-9c84-47ff-9dce-757640630494\",\"eventID\":\"0d3081cf-51bb-4912-a7d0-4dca4e741068\",\"readOnly\":false,\"eventType\":\"AwsApiCall\",\"managementEvent\":true,\"recipientAccountId\":\"366339681563\",\"eventCategory\":\"Management\",\"sessionCredentialFromConsole\":\"true\"}"
+        },
+        {
+            "EventId": "8019a9c2-78b8-4381-8d82-da4b95c62d3f",
+            "EventName": "DeleteDBInstance",
+            "ReadOnly": "false",
+            "AccessKeyId": "ASIAVKS4L5UN5ZTLW6SR",
+            "EventTime": "2026-04-11T19:10:39+10:00",
+            "EventSource": "rds.amazonaws.com",
+            "Username": "root",
+            "Resources": [
+                {
+                    "ResourceType": "AWS::RDS::DBInstance",
+                    "ResourceName": "securebank-db"
+                },
+                {
+                    "ResourceType": "AWS::RDS::DBSnapshot",
+                    "ResourceName": "securebank-secure-prod-snapshot-transactiondatabase-iusgztz1idw6"
+                }
+            ],
+            "CloudTrailEvent": "{\"eventVersion\":\"1.11\",\"userIdentity\":{\"type\":\"Root\",\"principalId\":\"366339681563\",\"arn\":\"arn:aws:iam::366339681563:root\",\"accountId\":\"366339681563\",\"accessKeyId\":\"ASIAVKS4L5UN5ZTLW6SR\",\"sessionContext\":{\"attributes\":{\"creationDate\":\"2026-04-11T08:58:26Z\",\"mfaAuthenticated\":\"false\"}},\"invokedBy\":\"cloudformation.amazonaws.com\"},\"eventTime\":\"2026-04-11T09:10:39Z\",\"eventSource\":\"rds.amazonaws.com\",\"eventName\":\"DeleteDBInstance\",\"awsRegion\":\"ap-southeast-2\",\"sourceIPAddress\":\"cloudformation.amazonaws.com\",\"userAgent\":\"cloudformation.amazonaws.com\",\"errorCode\":\"InvalidDBInstanceStateFault\",\"errorMessage\":\"Cannot create a snapshot because the database instance securebank-db is not currently in the available state.\",\"requestParameters\":{\"dBInstanceIdentifier\":\"securebank-db\",\"skipFinalSnapshot\":false,\"finalDBSnapshotIdentifier\":\"securebank-secure-prod-snapshot-transactiondatabase-iusgztz1idw6\"},\"responseElements\":null,\"requestID\":\"334679dc-bc97-4265-8568-43c449b197eb\",\"eventID\":\"8019a9c2-78b8-4381-8d82-da4b95c62d3f\",\"readOnly\":false,\"eventType\":\"AwsApiCall\",\"managementEvent\":true,\"recipientAccountId\":\"366339681563\",\"eventCategory\":\"Management\",\"sessionCredentialFromConsole\":\"true\"}"
+        },
+        {
+            "EventId": "75cfa127-5368-42f4-b845-48a7222461e9",
+            "EventName": "DeleteDBInstance",
+            "ReadOnly": "false",
+            "AccessKeyId": "ASIAVKS4L5UNTGPOXGFI",
+            "EventTime": "2026-04-11T19:10:23+10:00",
+            "EventSource": "rds.amazonaws.com",
+            "Username": "root",
+            "Resources": [
+                {
+                    "ResourceType": "AWS::RDS::DBInstance",
+                    "ResourceName": "securebank-db"
+                },
+                {
+                    "ResourceType": "AWS::RDS::DBSnapshot",
+                    "ResourceName": "securebank-secure-prod-snapshot-transactiondatabase-iusgztz1idw6"
+                }
+            ],
+            "CloudTrailEvent": "{\"eventVersion\":\"1.11\",\"userIdentity\":{\"type\":\"Root\",\"principalId\":\"366339681563\",\"arn\":\"arn:aws:iam::366339681563:root\",\"accountId\":\"366339681563\",\"accessKeyId\":\"ASIAVKS4L5UNTGPOXGFI\",\"sessionContext\":{\"attributes\":{\"creationDate\":\"2026-04-11T08:58:26Z\",\"mfaAuthenticated\":\"false\"}},\"invokedBy\":\"cloudformation.amazonaws.com\"},\"eventTime\":\"2026-04-11T09:10:23Z\",\"eventSource\":\"rds.amazonaws.com\",\"eventName\":\"DeleteDBInstance\",\"awsRegion\":\"ap-southeast-2\",\"sourceIPAddress\":\"cloudformation.amazonaws.com\",\"userAgent\":\"cloudformation.amazonaws.com\",\"errorCode\":\"InvalidDBInstanceStateFault\",\"errorMessage\":\"Cannot create a snapshot because the database instance securebank-db is not currently in the available state.\",\"requestParameters\":{\"dBInstanceIdentifier\":\"securebank-db\",\"skipFinalSnapshot\":false,\"finalDBSnapshotIdentifier\":\"securebank-secure-prod-snapshot-transactiondatabase-iusgztz1idw6\"},\"responseElements\":null,\"requestID\":\"7c3f818a-a3ab-480c-af80-33af11bfb1c0\",\"eventID\":\"75cfa127-5368-42f4-b845-48a7222461e9\",\"readOnly\":false,\"eventType\":\"AwsApiCall\",\"managementEvent\":true,\"recipientAccountId\":\"366339681563\",\"eventCategory\":\"Management\",\"sessionCredentialFromConsole\":\"true\"}"
+        },
+        {
+            "EventId": "58d13edf-361f-4e62-bd09-1163163a0615",
+            "EventName": "DeleteDBInstance",
+            "ReadOnly": "false",
+            "AccessKeyId": "ASIAVKS4L5UNXFL5COHQ",
+            "EventTime": "2026-04-11T19:10:15+10:00",
+            "EventSource": "rds.amazonaws.com",
+            "Username": "root",
+            "Resources": [
+                {
+                    "ResourceType": "AWS::RDS::DBInstance",
+                    "ResourceName": "securebank-db"
+                },
+                {
+                    "ResourceType": "AWS::RDS::DBSnapshot",
+                    "ResourceName": "securebank-secure-prod-snapshot-transactiondatabase-iusgztz1idw6"
+                }
+            ],
+            "CloudTrailEvent": "{\"eventVersion\":\"1.11\",\"userIdentity\":{\"type\":\"Root\",\"principalId\":\"366339681563\",\"arn\":\"arn:aws:iam::366339681563:root\",\"accountId\":\"366339681563\",\"accessKeyId\":\"ASIAVKS4L5UNXFL5COHQ\",\"sessionContext\":{\"attributes\":{\"creationDate\":\"2026-04-11T08:58:26Z\",\"mfaAuthenticated\":\"false\"}},\"invokedBy\":\"cloudformation.amazonaws.com\"},\"eventTime\":\"2026-04-11T09:10:15Z\",\"eventSource\":\"rds.amazonaws.com\",\"eventName\":\"DeleteDBInstance\",\"awsRegion\":\"ap-southeast-2\",\"sourceIPAddress\":\"cloudformation.amazonaws.com\",\"userAgent\":\"cloudformation.amazonaws.com\",\"errorCode\":\"InvalidDBInstanceStateFault\",\"errorMessage\":\"Cannot create a snapshot because the database instance securebank-db is not currently in the available state.\",\"requestParameters\":{\"dBInstanceIdentifier\":\"securebank-db\",\"skipFinalSnapshot\":false,\"finalDBSnapshotIdentifier\":\"securebank-secure-prod-snapshot-transactiondatabase-iusgztz1idw6\"},\"responseElements\":null,\"requestID\":\"161bd257-cc51-4752-bed4-1d603ad9c644\",\"eventID\":\"58d13edf-361f-4e62-bd09-1163163a0615\",\"readOnly\":false,\"eventType\":\"AwsApiCall\",\"managementEvent\":true,\"recipientAccountId\":\"366339681563\",\"eventCategory\":\"Management\",\"sessionCredentialFromConsole\":\"true\"}"
+        },
+        {
+            "EventId": "2339be49-8454-4c03-aa60-1855686d37cb",
+            "EventName": "DeleteDBInstance",
+            "ReadOnly": "false",
+            "AccessKeyId": "ASIAVKS4L5UN7VET7RD2",
+            "EventTime": "2026-04-11T19:10:10+10:00",
+            "EventSource": "rds.amazonaws.com",
+            "Username": "root",
+            "Resources": [
+                {
+                    "ResourceType": "AWS::RDS::DBInstance",
+                    "ResourceName": "securebank-db"
+                },
+                {
+                    "ResourceType": "AWS::RDS::DBSnapshot",
+                    "ResourceName": "securebank-secure-prod-snapshot-transactiondatabase-iusgztz1idw6"
+                }
+            ],
+            "CloudTrailEvent": "{\"eventVersion\":\"1.11\",\"userIdentity\":{\"type\":\"Root\",\"principalId\":\"366339681563\",\"arn\":\"arn:aws:iam::366339681563:root\",\"accountId\":\"366339681563\",\"accessKeyId\":\"ASIAVKS4L5UN7VET7RD2\",\"sessionContext\":{\"attributes\":{\"creationDate\":\"2026-04-11T08:58:26Z\",\"mfaAuthenticated\":\"false\"}},\"invokedBy\":\"cloudformation.amazonaws.com\"},\"eventTime\":\"2026-04-11T09:10:10Z\",\"eventSource\":\"rds.amazonaws.com\",\"eventName\":\"DeleteDBInstance\",\"awsRegion\":\"ap-southeast-2\",\"sourceIPAddress\":\"cloudformation.amazonaws.com\",\"userAgent\":\"cloudformation.amazonaws.com\",\"errorCode\":\"InvalidDBInstanceStateFault\",\"errorMessage\":\"Cannot create a snapshot because the database instance securebank-db is not currently in the available state.\",\"requestParameters\":{\"dBInstanceIdentifier\":\"securebank-db\",\"skipFinalSnapshot\":false,\"finalDBSnapshotIdentifier\":\"securebank-secure-prod-snapshot-transactiondatabase-iusgztz1idw6\"},\"responseElements\":null,\"requestID\":\"8d1b6d33-39c5-4311-91bf-ae9f8808ad62\",\"eventID\":\"2339be49-8454-4c03-aa60-1855686d37cb\",\"readOnly\":false,\"eventType\":\"AwsApiCall\",\"managementEvent\":true,\"recipientAccountId\":\"366339681563\",\"eventCategory\":\"Management\",\"sessionCredentialFromConsole\":\"true\"}"
+        }
+    ]
+}
