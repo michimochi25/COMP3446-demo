@@ -538,59 +538,72 @@ cat prowler-reports/cis/*.json | \
 
 ### Step 5: Validate Before Production Promotion with Prowler
 
-```bash
+1. Make an automated script
+cat > validate-script.sh << 'EOF'
+#!/bin/bash
+
 # Production readiness validation using Prowler
 echo "=== Production Readiness Checklist with Prowler ==="
 
-# 1. Run comprehensive Prowler scan
-prowler aws --region ap-southeast-2 -o prowler-prod-check
+# Locate the exact JSON file you already generated
+REPORT_JSON=$(ls prowler-reports/*.json 2>/dev/null | head -n 1)
 
-# 2. Check for critical findings
-CRITICAL_COUNT=$(cat ~/prowler-prod-check/prowler-output.json | \
-  jq '[.[] | select(.Severity == "critical")] | length')
-
-if [ $CRITICAL_COUNT -eq 0 ]; then
-  echo "✅ 0 critical findings"
-else
-  echo "❌ $CRITICAL_COUNT critical findings found"
+# Fail fast if the report doesn't exist to prevent 'cat' from hanging
+if [ -z "$REPORT_JSON" ]; then
+  echo "❌ Error: Could not find Prowler report in prowler-reports/"
   exit 1
 fi
 
-# 3. Validate specific security checks
-echo "\n=== Checking Security Controls ==="
+# Check for critical findings
+CRITICAL_COUNT=$(jq '[.[] | select((.severity == "Critical" or .severity == "critical") and .status_code == "FAIL")] | length' "$REPORT_JSON")
+
+if [ "$CRITICAL_COUNT" -eq 0 ]; then
+  echo "✅ 0 critical findings"
+else
+  echo "❌ $CRITICAL_COUNT critical findings found"
+fi
+
+echo -e "\n=== Checking Security Controls ==="
 
 # Check RDS encryption
-RDS_ENCRYPTION=$(cat ~/prowler-prod-check/prowler-output.json | \
-  jq '.[] | select(.Check_ID == "rds_encrypt") | .Result')
-echo "✅ RDS Encryption: $RDS_ENCRYPTION"
+RDS_ENCRYPTION=$(jq -r '.[] | select(.metadata.event_code == "rds_instance_storage_encrypted" and .status_code == "FAIL") | .status_code' "$REPORT_JSON" | head -n 1)
+if [ "$RDS_ENCRYPTION" == "FAIL" ]; then
+  echo "❌ RDS Encryption: FAILED"
+else
+  echo "✅ RDS Encryption: PASSED / NOT_FOUND"
+fi
 
 # Check API Gateway Authorization
-API_AUTH=$(cat ~/prowler-prod-check/prowler-output.json | \
-  jq '.[] | select(.Check_ID == "apigateway_authorization") | .Result')
-echo "✅ API Gateway Authorization: $API_AUTH"
-
-# Check CloudTrail logging
-CT_LOGGING=$(cat ~/prowler-prod-check/prowler-output.json | \
-  jq '.[] | select(.Check_ID == "cloudtrail_enabled") | .Result')
-echo "✅ CloudTrail Logging: $CT_LOGGING"
+API_AUTH=$(jq -r '.[] | select(.metadata.event_code == "apigateway_restapi_authorizers_enabled" and .status_code == "FAIL") | .status_code' "$REPORT_JSON" | head -n 1)
+if [ "$API_AUTH" == "FAIL" ]; then
+  echo "❌ API Gateway Authorization: FAILED"
+else
+  echo "✅ API Gateway Authorization: PASSED / NOT_FOUND"
+fi
 
 # Check S3 public access blocks
-S3_BLOCK=$(cat ~/prowler-prod-check/prowler-output.json | \
-  jq '.[] | select(.Check_ID == "s3_block_public") | .Result')
-echo "✅ S3 Public Access Blocked: $S3_BLOCK"
+S3_BLOCK=$(jq -r '.[] | select(.metadata.event_code == "s3_bucket_level_public_access_block" and .status_code == "FAIL") | .status_code' "$REPORT_JSON" | head -n 1)
+if [ "$S3_BLOCK" == "FAIL" ]; then
+  echo "❌ S3 Public Access Blocked: FAILED"
+else
+  echo "✅ S3 Public Access Blocked: PASSED / NOT_FOUND"
+fi
 
-# 4. Generate compliance summary
-echo "\n=== Compliance Summary ==="
-cat ~/prowler-prod-check/prowler-output.json | \
-  jq -r '.[] | "\(.Check_ID): \(.Result)"' | sort | uniq -c
+# Generate compliance summary
+COMPLIANCE_JSON=$(ls prowler-reports/cis/*.json 2>/dev/null | head -n 1)
 
-# 5. Export results for stakeholders
-echo "\n=== Exporting Results ==="
-cp ~/prowler-prod-check/prowler-output.html ./prowler-prod-report.html
-echo "✅ Report exported to prowler-prod-report.html"
+echo -e "\n=== Compliance Summary ==="
+if [ -z "$COMPLIANCE_JSON" ]; then
+  echo "⚠️ No CIS compliance report found."
+else
+  jq -r '.[] | "\(.metadata.event_code): \(.status_code)"' "$COMPLIANCE_JSON" | sort | uniq -c
+fi
 
-echo "\n=== Ready for promotion to production ==="
-````
+echo -e "\n=== Ready for promotion to production ==="
+EOF
+
+2. Change the file permission `chmod +x validate-script.sh
+3. Run the script `./validate-script.sh`
 
 ---
 
@@ -893,3 +906,4 @@ aws cloudwatch put-metric-data \
 | **Audit Trail Completeness** | None                    | 100% immutable     |
 
 **Key Lesson:** Security controls applied during implementation (Phase 2) prevent 80% of vulnerabilities before testing, reducing risk and cost significantly.
+````
