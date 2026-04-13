@@ -157,7 +157,7 @@ semgrep --config=p/security-audit phase-2-iac/insecure-template.yaml
 # Deploy secure template
 aws cloudformation create-stack \
   --stack-name securebank-secure-prod \
-  --template-body file://phase-2-iac/secure-template-cognito.yaml \
+  --template-body file://phase-2-iac/secure-template.yaml \
   --parameters ParameterKey=Environment,ParameterValue=prod \
   --capabilities CAPABILITY_NAMED_IAM \
   --region ap-southeast-2
@@ -267,19 +267,29 @@ phases:
       python: 3.11
     commands:
       - echo "Installing security scanning tools..."
-      - pip install checkov semgrep detect-secrets
+      - pip install checkov semgrep detect-secrets bandit
 
   build:
     commands:
       - mkdir -p TEST_REPORTS
       - echo "=== Phase 3.1 IaC Scanning with Checkov ==="
       - checkov -f phase-2-iac/secure-template.yaml --framework cloudformation --output cli > TEST_REPORTS/checkov-results.txt
+
       - echo "=== Phase 3.2 SAST with Semgrep ==="
-      - semgrep --config=p/security-audit phase-2-iac/insecure-template.yaml --json --output TEST_REPORTS/semgrep-results.json
+      # Scan the IaC template
+      - semgrep --config=p/security-audit phase-2-iac/secure-template.yaml --json --output TEST_REPORTS/semgrep-iac-results.json
+      # Scan the Lambda Python code
+      - semgrep --config=p/python phase-2-app/ --json --output TEST_REPORTS/semgrep-app-results.json
+
       - echo "=== Phase 3.3 Secret Detection ==="
-      - detect-secrets scan phase-2-iac/ --all-files > TEST_REPORTS/secrets-scan.txt
+      # Scan the root directory '.' to cover both IaC and App folders
+      - detect-secrets scan . --all-files > TEST_REPORTS/secrets-scan.txt
+
       - echo "=== Phase 3.4 AWS Lambda Code Analysis ==="
+      # Syntax check
       - python3 -m py_compile phase-2-app/lambda_functions.py
+      # Run Bandit SAST scan on the Lambda code
+      - bandit -r phase-2-app/ -f json -o TEST_REPORTS/bandit-results.json
 
   post_build:
     commands:
@@ -418,7 +428,6 @@ aws cloudformation create-stack \
   --stack-name securebank-sandbox \
   --template-body file://phase-2-iac/secure-template-new.yaml \
   --parameters ParameterKey=Environment,ParameterValue=staging \
-              ParameterKey=CognitoUserPoolId,ParameterValue=ap-southeast-2_XXX \
   --capabilities CAPABILITY_NAMED_IAM \
   --region ap-southeast-2
 
