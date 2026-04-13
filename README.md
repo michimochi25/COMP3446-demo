@@ -426,7 +426,7 @@ Deploy to isolated sandbox environment. DAST (OWASP ZAP) performs dynamic securi
 # Deploy secure template to sandbox
 aws cloudformation create-stack \
   --stack-name securebank-sandbox \
-  --template-body file://phase-2-iac/secure-template-new.yaml \
+  --template-body file://phase-2-iac/secure-template.yaml \
   --parameters ParameterKey=Environment,ParameterValue=staging \
   --capabilities CAPABILITY_NAMED_IAM \
   --region ap-southeast-2
