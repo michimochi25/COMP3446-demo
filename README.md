@@ -366,6 +366,12 @@ aws iam simulate-principal-policy \
 # Create SNS topic for security alerts
 aws sns create-topic --name SecureBank-SecurityAlerts --region ap-southeast-2
 
+aws sns subscribe \
+    --topic-arn arn:aws:sns:ap-southeast-2:$(aws sts get-caller-identity --query Account --output text):SecureBank-SecurityAlerts \
+    --protocol email \
+    --notification-endpoint degussudarmawan12@gmail.com \
+    --region ap-southeast-2
+
 # Create CloudWatch alarm for failed security checks
 # AWS CloudWatch Alarm: Security Build Failures
 # ---------------------------------------------------------
