@@ -1,16 +1,11 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: "SecureBank Transaction API - Production"
+Description: "SecureBank Transaction API"
 
 Parameters:
   Environment:
     Type: String
     Default: prod
     AllowedValues: [dev, staging, prod]
-
-  CognitoUserPoolId:
-    Type: String
-    Default: ap-southeast-2_PLACEHOLDER
-    Description: Cognito User Pool ID for authentication
 
 Resources:
   # ===== KMS KEY =====
@@ -53,7 +48,7 @@ Resources:
   KMSKeyAlias:
     Type: AWS::KMS::Alias
     Properties:
-      AliasName: !Sub alias/securebank-${Environment}
+      AliasName: !Sub "alias/securebank-${Environment}"
       TargetKeyId: !Ref KMSKeyForEncryption
 
   # ===== VPC =====
@@ -65,7 +60,7 @@ Resources:
       EnableDnsSupport: true
       Tags:
         - Key: Name
-          Value: SecureBank-VPC
+          Value: !Sub "SecureBank-VPC-${Environment}"
 
   InternetGateway:
     Type: AWS::EC2::InternetGateway
@@ -156,8 +151,6 @@ Resources:
       RouteTableId: !Ref PrivateRouteTable
 
   # ===== SECURITY GROUPS =====
-  # Defined without cross-references to avoid circular dependency.
-  # Cross-SG rules are added via standalone Egress/Ingress resources below.
   LambdaSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -176,7 +169,6 @@ Resources:
       GroupDescription: Security group for RDS database
       VpcId: !Ref SecureBankVPC
 
-  # Standalone cross-SG rules added after both groups exist
   LambdaToDBEgress:
     Type: AWS::EC2::SecurityGroupEgress
     Properties:
@@ -201,7 +193,7 @@ Resources:
   DBCredentialsSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
-      Name: /SecureBank/prod/db-credentials
+      Name: !Sub "/SecureBank/${Environment}/db-credentials"
       Description: RDS database credentials - rotated automatically
       KmsKeyId: !GetAtt KMSKeyForEncryption.Arn
       GenerateSecretString:
@@ -236,7 +228,7 @@ Resources:
     Type: AWS::RDS::DBInstance
     DeletionPolicy: Snapshot
     Properties:
-      DBInstanceIdentifier: securebank-db
+      DBInstanceIdentifier: !Sub "securebank-db-${Environment}"
       Engine: mysql
       EngineVersion: "8.0"
       DBInstanceClass: db.t3.micro
@@ -250,8 +242,6 @@ Resources:
       VPCSecurityGroups:
         - !Ref DBSecurityGroup
       DBSubnetGroupName: !Ref DBSubnetGroup
-
-      # To speed up prod
       MultiAZ: true
       BackupRetentionPeriod: 0
       DeletionProtection: true
@@ -271,7 +261,7 @@ Resources:
     Type: AWS::S3::Bucket
     Properties:
       # checkov:skip=CKV_AWS_18:Ensure the S3 bucket has access logging enabled
-      BucketName: !Sub "securebank-audit-logs-${AWS::AccountId}"
+      BucketName: !Sub "securebank-audit-logs-${Environment}-${AWS::AccountId}"
       VersioningConfiguration:
         Status: Enabled
       BucketEncryption:
@@ -334,8 +324,8 @@ Resources:
   SecureBankAccessLogsBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub "securebank-access-logs-${AWS::AccountId}"
       # checkov:skip=CKV_AWS_18:Ensure the S3 bucket has access logging enabled
+      BucketName: !Sub "securebank-access-logs-${Environment}-${AWS::AccountId}"
       VersioningConfiguration:
         Status: Enabled
       BucketEncryption:
@@ -371,7 +361,7 @@ Resources:
   SecureBankSourceBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub "securebank-source-${AWS::AccountId}"
+      BucketName: !Sub "securebank-source-${Environment}-${AWS::AccountId}"
       VersioningConfiguration:
         Status: Enabled
       BucketEncryption:
@@ -390,7 +380,7 @@ Resources:
   SecureBankTestResultsBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub "securebank-test-results-${AWS::AccountId}"
+      BucketName: !Sub "securebank-test-results-${Environment}-${AWS::AccountId}"
       VersioningConfiguration:
         Status: Enabled
       BucketEncryption:
@@ -456,7 +446,7 @@ Resources:
   CodeBuildServiceRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: CodeBuildRole
+      RoleName: !Sub "CodeBuildRole-${Environment}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -464,13 +454,11 @@ Resources:
             Principal:
               Service: codebuild.amazonaws.com
             Action: sts:AssumeRole
-
       Policies:
         - PolicyName: CodeBuildSecureBankPolicy
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              # Access to write logs to CloudWatch
               - Sid: CloudWatchLogsWriteAccess
                 Effect: Allow
                 Action:
@@ -478,36 +466,32 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource:
-                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/securebank"
-                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/securebank:*"
-
-              # Access to download the zipped source code
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/securebank-${Environment}"
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/securebank-${Environment}:*"
               - Sid: S3SourceReadAccess
                 Effect: Allow
                 Action:
                   - s3:GetObject
                   - s3:GetObjectVersion
-                Resource: !Sub "arn:aws:s3:::securebank-source-${AWS::AccountId}/*"
-
-              # Access to upload the completed test results
+                Resource: !Sub "arn:aws:s3:::securebank-source-${Environment}-${AWS::AccountId}/*"
               - Sid: S3ArtifactWriteAccess
                 Effect: Allow
                 Action:
                   - s3:PutObject
-                Resource: !Sub "arn:aws:s3:::securebank-test-results-${AWS::AccountId}/*"
+                Resource: !Sub "arn:aws:s3:::securebank-test-results-${Environment}-${AWS::AccountId}/*"
 
   # ===== DEAD LETTER QUEUES =====
   GetTransactionDLQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: get-transaction-dlq
+      QueueName: !Sub "get-transaction-dlq-${Environment}"
       KmsMasterKeyId: !GetAtt KMSKeyForEncryption.Arn
       MessageRetentionPeriod: 1209600
 
   TransferFundsDLQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: transfer-funds-dlq
+      QueueName: !Sub "transfer-funds-dlq-${Environment}"
       KmsMasterKeyId: !GetAtt KMSKeyForEncryption.Arn
       MessageRetentionPeriod: 1209600
 
@@ -515,7 +499,7 @@ Resources:
   GetTransactionFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: get-transaction-secure
+      FunctionName: !Sub "get-transaction-secure-${Environment}"
       Runtime: python3.11
       Handler: index.handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -609,10 +593,7 @@ Resources:
                       host=os.environ['DB_HOST'],
                       user=creds['username'],
                       password=creds['password'],
-                      database=os.environ['DB_NAME'],
-                      ssl_disabled=False,
-                      ssl_verify_cert=True,
-                      ssl_verify_identity=True
+                      database=os.environ['DB_NAME']
                   )
                   cursor = conn.cursor(dictionary=True)
                   cursor.execute(
@@ -657,7 +638,7 @@ Resources:
   TransferFundsFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: transfer-funds-secure
+      FunctionName: !Sub "transfer-funds-secure-${Environment}"
       Runtime: python3.11
       Handler: index.handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -768,10 +749,7 @@ Resources:
                       user=creds['username'],
                       password=creds['password'],
                       database=os.environ['DB_NAME'],
-                      autocommit=False,
-                      ssl_disabled=False,
-                      ssl_verify_cert=True,
-                      ssl_verify_identity=True
+                      autocommit=False
                   )
                   cursor = conn.cursor()
 
@@ -834,11 +812,41 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${APIGatewayRestApi}/*"
 
+  # ===== COGNITO (Fully Automated Authentication) =====
+  SecureBankUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "SecureBank-Users-${Environment}"
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          RequireUppercase: true
+
+  SecureBankUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub "SecureBank-AppClient-${Environment}"
+      UserPoolId: !Ref SecureBankUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+
   # ===== API GATEWAY =====
   APIGatewayRestApi:
     Type: AWS::ApiGateway::RestApi
     Properties:
-      Name: SecureBank-API
+      Name: !Sub "SecureBank-API-${Environment}"
       Description: Secure Banking API with Cognito Authorization
       EndpointConfiguration:
         Types: [REGIONAL]
@@ -851,7 +859,7 @@ Resources:
       IdentitySource: method.request.header.Authorization
       RestApiId: !Ref APIGatewayRestApi
       ProviderARNs:
-        - !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${CognitoUserPoolId}"
+        - !GetAtt SecureBankUserPool.Arn
 
   TransactionsResource:
     Type: AWS::ApiGateway::Resource
@@ -911,7 +919,7 @@ Resources:
   WAFWebACL:
     Type: AWS::WAFv2::WebACL
     Properties:
-      Name: SecureBank-WAF
+      Name: !Sub "SecureBank-WAF-${Environment}"
       Scope: REGIONAL
       DefaultAction:
         Allow: {}
@@ -927,7 +935,7 @@ Resources:
           VisibilityConfig:
             SampledRequestsEnabled: true
             CloudWatchMetricsEnabled: true
-            MetricName: RateLimitRuleMetric
+            MetricName: !Sub "RateLimitRuleMetric${Environment}"
         - Name: AWSManagedRulesCommonRuleSet
           Priority: 1
           OverrideAction:
@@ -939,7 +947,7 @@ Resources:
           VisibilityConfig:
             SampledRequestsEnabled: true
             CloudWatchMetricsEnabled: true
-            MetricName: AWSCommonRuleSetMetric
+            MetricName: !Sub "AWSCommonRuleSetMetric${Environment}"
         - Name: AWSManagedRulesSQLiRuleSet
           Priority: 2
           OverrideAction:
@@ -951,7 +959,7 @@ Resources:
           VisibilityConfig:
             SampledRequestsEnabled: true
             CloudWatchMetricsEnabled: true
-            MetricName: AWSSQLiRuleSetMetric
+            MetricName: !Sub "AWSSQLiRuleSetMetric${Environment}"
         - Name: AWSManagedRulesKnownBadInputsRuleSet
           Priority: 3
           OverrideAction:
@@ -963,11 +971,11 @@ Resources:
           VisibilityConfig:
             SampledRequestsEnabled: true
             CloudWatchMetricsEnabled: true
-            MetricName: AWSKnownBadInputsRuleSetMetric
+            MetricName: !Sub "AWSKnownBadInputsRuleSetMetric${Environment}"
       VisibilityConfig:
         SampledRequestsEnabled: true
         CloudWatchMetricsEnabled: true
-        MetricName: SecureBankWAFMetrics
+        MetricName: !Sub "SecureBankWAFMetrics${Environment}"
 
   WAFWebACLAssociation:
     Type: AWS::WAFv2::WebACLAssociation
@@ -980,7 +988,7 @@ Resources:
   CloudTrailLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: /aws/cloudtrail/securebank
+      LogGroupName: !Sub "/aws/cloudtrail/securebank/${Environment}"
       RetentionInDays: 1
       KmsKeyId: !GetAtt KMSKeyForEncryption.Arn
 
@@ -1017,7 +1025,7 @@ Resources:
     Type: AWS::CloudTrail::Trail
     DependsOn: AuditLogsBucketPolicy
     Properties:
-      TrailName: SecureBank-CloudTrail
+      TrailName: !Sub "SecureBank-CloudTrail-${Environment}"
       S3BucketName: !Ref AuditLogsBucket
       IsLogging: true
       IsMultiRegionTrail: true
@@ -1054,3 +1062,12 @@ Outputs:
   NATGatewayIP:
     Value: !Ref NATGatewayEIP
     Description: Elastic IP for NAT Gateway
+
+  # --- NEW OUPUTS FOR COGNITO ---
+  CognitoUserPoolId:
+    Value: !Ref SecureBankUserPool
+    Description: Use this ID to manage users in Cognito
+
+  CognitoAppClientId:
+    Value: !Ref SecureBankUserPoolClient
+    Description: Use this Client ID in your frontend/API calls to authenticate
