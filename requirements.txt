@@ -13,11 +13,6 @@ botocore
 # Database connectivity
 mysql-connector-python
 
-# Security scanning tools (for Phase 2 code review)
-checkov
-semgrep
-detect-secrets
-
 # JSON and utility
 python-dateutil
 
