@@ -243,7 +243,6 @@ Resources:
       AllocatedStorage: 20
       StorageType: gp3
       StorageEncrypted: true
-      EnableIAMDatabaseAuthentication: true
       KmsKeyId: !GetAtt KMSKeyForEncryption.Arn
       MasterUsername: !Sub "{{resolve:secretsmanager:${DBCredentialsSecret}:SecretString:username}}"
       MasterUserPassword: !Sub "{{resolve:secretsmanager:${DBCredentialsSecret}:SecretString:password}}"
