@@ -201,8 +201,7 @@ Resources:
   DBCredentialsSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
-      # TODO: remove v2
-      Name: /SecureBank/prod/db-credentials-v2
+      Name: /SecureBank/prod/db-credentials
       Description: RDS database credentials - rotated automatically
       KmsKeyId: !GetAtt KMSKeyForEncryption.Arn
       GenerateSecretString:
@@ -256,17 +255,15 @@ Resources:
       # To speed up prod
       MultiAZ: true
       BackupRetentionPeriod: 0
-
-      # TODO: Uncomment when ready to test deletion protection in student accounts
-      # DeletionProtection: true
-      # EnableIAMDatabaseAuthentication: true
-      # EnableCloudwatchLogsExports:
-      #   - error
-      #   - general
-      #   - slowquery
-      # AutoMinorVersionUpgrade: false
-      # CopyTagsToSnapshot: true
-      # DeleteAutomatedBackups: false
+      DeletionProtection: true
+      EnableIAMDatabaseAuthentication: true
+      EnableCloudwatchLogsExports:
+        - error
+        - general
+        - slowquery
+      AutoMinorVersionUpgrade: false
+      CopyTagsToSnapshot: true
+      DeleteAutomatedBackups: false
       MonitoringInterval: 60
       MonitoringRoleArn: !GetAtt RDSMonitoringRole.Arn
 
@@ -613,7 +610,10 @@ Resources:
                       host=os.environ['DB_HOST'],
                       user=creds['username'],
                       password=creds['password'],
-                      database=os.environ['DB_NAME']
+                      database=os.environ['DB_NAME'],
+                      ssl_disabled=False,
+                      ssl_verify_cert=True,
+                      ssl_verify_identity=True
                   )
                   cursor = conn.cursor(dictionary=True)
                   cursor.execute(
@@ -769,7 +769,10 @@ Resources:
                       user=creds['username'],
                       password=creds['password'],
                       database=os.environ['DB_NAME'],
-                      autocommit=False
+                      autocommit=False,
+                      ssl_disabled=False,
+                      ssl_verify_cert=True,
+                      ssl_verify_identity=True
                   )
                   cursor = conn.cursor()
 

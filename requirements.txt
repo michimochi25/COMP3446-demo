@@ -1,29 +1,26 @@
+checkov
+semgrep
+detect-secrets
+prowler
+
 # Phase 2 - Application Dependencies
 # These dependencies are needed for the Lambda functions and local testing
 
 # Core AWS SDK
-boto3>=1.26.0
-botocore>=1.29.0
+boto3
+botocore
 
 # Database connectivity
-mysql-connector-python>=8.0.33
+mysql-connector-python
 
 # Security scanning tools (for Phase 2 code review)
-checkov>=2.14.0
-semgrep>=1.35.0
-detect-secrets>=1.4.0
+checkov
+semgrep
+detect-secrets
 
 # JSON and utility
-python-dateutil>=2.8.0
+python-dateutil
 
 # Code linting and formatting (optional)
-pylint>=2.16.0
-black>=22.12.0
-
-# Testing
-pytest>=7.2.0
-pytest-cov>=4.0.0
-
-# Development
-ipython>=8.8.0
-ipdb>=0.13.0
+pylint
+black
