@@ -52,7 +52,6 @@ Application Layer (Private VPC)
 Data Layer (Encrypted at Rest)
   ├── Amazon RDS MySQL      (AES-256, private subnet, no public access)
   ├── Amazon S3             (SSE-KMS for audit logs, public access blocked)
-  └── Amazon ElastiCache    (session/cache layer)
 ```
 
 ### VPC Network Layout (Secure Template)
